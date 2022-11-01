@@ -1,7 +1,7 @@
 #!/bin/bash
 
 LOGLINE="Agent attestation request completed"
-for ((i=0;i<12;i++)); do
+for ((i=0;i<120;i++)); do
     if ! kubectl -nspire rollout status statefulset/spire-server; then
         sleep 1
         continue
