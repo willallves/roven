@@ -3,7 +3,7 @@
 EKS_DIR ?= ./dev/kubernetes
 BINARIES ?= hybrid_server hybrid_agent
 OSES ?= linux
-ARCHITECTURES ?= amd64 arm64
+ARCHITECTURES ?= amd64
 VERSION ?= latest
 DOCKER_HUB ?= public.ecr.aws/n9c4h4j5
 DOCKER_TAG_AGENT ?= hybrid-attestor-server:latest hybrid-attestor-agent:latest 
