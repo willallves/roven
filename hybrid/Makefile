@@ -34,8 +34,8 @@ test: test-unit test-integration
 test-unit:
 	go test ./...
 
-test-integration:
-	bash ./test/integration/test.sh
+integration-test:
+	./test/integration/test.sh
 
 docker:
 	docker build -f hybrid/dev/docker/server.Dockerfile -t $DOCKER_HUB/$REPOSITORY_SERVER:$IMAGE_TAG .
@@ -53,6 +53,17 @@ deploy-spire-eks:
 	envsubst < $(EKS_DIR)/server.yaml | kubectl apply -f -
 	envsubst < $(EKS_DIR)/agent.yaml | kubectl apply -f -
 
+setup-integration:
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -extldflags -static" -o build/linux/amd64/hybrid_server cmd/hybrid_server/main.go
+
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -extldflags -static" -o build/linux/amd64/hybrid_agent cmd/hybrid_agent/main.go
+
+	docker build -f hybrid/dev/docker/server.Dockerfile -t $DOCKER_HUB/$REPOSITORY_SERVER:$IMAGE_TAG .
+	docker build -f hybrid/dev/docker/agent.Dockerfile -t $DOCKER_HUB/$REPOSITORY_AGENT:$IMAGE_TAG .
+	
+	docker push $DOCKER_HUB/$REPOSITORY_SERVER:$IMAGE_TAG
+	docker push $DOCKER_HUB/$REPOSITORY_AGENT:$IMAGE_TAG
+	
 clean:
 	rm -rf $(BUILD_DIR)
 
