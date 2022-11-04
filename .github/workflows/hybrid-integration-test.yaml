@@ -33,46 +33,18 @@ jobs:
       run: |
         curl --silent --location "https://github.com/weaveworks/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz" | tar xz -C /tmp && mv /tmp/eksctl /usr/local/bin 
 
-    - name: Build Hybrid Server project Go 
+    - name: Create cluster
       run: |
-        cd $GITHUB_WORKSPACE/hybrid/ && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -extldflags -static" -o build/linux/amd64/hybrid_server cmd/hybrid_server/main.go
-
-    - name: Build Hybrid Agent project Go 
-      run: |
-        cd $GITHUB_WORKSPACE/hybrid/ && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -extldflags -static" -o build/linux/amd64/hybrid_agent cmd/hybrid_agent/main.go
-
-    - name: Build, tag, and push docker image to Amazon ECR Public
-      env:
-        REGISTRY: ${{ steps.login-ecr-public.outputs.registry }}
-        REPOSITORY_SERVER: hybrid-attestor-server 
-        REPOSITORY_AGENT: hybrid-attestor-agent
-        IMAGE_TAG: latest
-      run: |
-        docker build -f $GITHUB_WORKSPACE/hybrid/dev/docker/server.Dockerfile -t $REGISTRY/${{ secrets.AWS_ACCOUNT_ID }}/$REPOSITORY_SERVER:$IMAGE_TAG .
-        docker build -f $GITHUB_WORKSPACE/hybrid/dev/docker/agent.Dockerfile -t $REGISTRY/${{ secrets.AWS_ACCOUNT_ID }}/$REPOSITORY_AGENT:$IMAGE_TAG .
-        docker push $REGISTRY/${{ secrets.AWS_ACCOUNT_ID }}/$REPOSITORY_SERVER:$IMAGE_TAG
-        docker push $REGISTRY/${{ secrets.AWS_ACCOUNT_ID }}/$REPOSITORY_AGENT:$IMAGE_TAG
+        eksctl create cluster --name ${{ secrets.AWS_TEST_CLUSTER }} --region ${{ secrets.AWS_REGION }} --without-nodegroup
 
     - name: Update and set context
       run: |
-        aws eks update-kubeconfig --region ${{ secrets.AWS_REGION }} --name ${{ secrets.AWS_TEST_CLUSTER }}
+        aws eks update-kubeconfig --region ${{ secrets.AWS_REGION }} --name ${{ secrets.AWS_TEST_CLUSTER }} &&
         kubectl config use-context arn:aws:eks:${{ secrets.AWS_REGION }}:${{ secrets.AWS_ACCOUNT_ID }}:cluster/${{ secrets.AWS_TEST_CLUSTER }}
-
-    - name: Deploy  
-      run: |
-        AWS_ACCOUNT_ID=${{ secrets.AWS_ACCOUNT_ID }}
-        AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}
-        AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        AWS_ASSUME_ROLE=${{ secrets.AWS_ASSUME_ROLE }}
-        kubectl delete --all daemonsets.app --namespace=spire
-        kubectl delete --all statefulset.app --namespace=spire
-        kubectl delete --ignore-not-found namespace spire
-        envsubst < $GITHUB_WORKSPACE/hybrid/dev/kubernetes/server.yaml | kubectl apply -f -
-        envsubst < $GITHUB_WORKSPACE/hybrid/dev/kubernetes/agent.yaml | kubectl apply -f -
 
     - name: Run integration test
       run: |
-        ./.github/workflows/scripts/integration-test.sh 
+        ./hybrid/test/integration/test.sh
 
     - name: Delete cluster
       run: |
