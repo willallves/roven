@@ -9,6 +9,9 @@ DOCKER_HUB ?= public.ecr.aws/n9c4h4j5
 DOCKER_TAG_AGENT ?= hybrid-attestor-server:latest hybrid-attestor-agent:latest 
 BUILD_DIR ?= ./build
 PLATFORMS ?= $(foreach os, $(OSES), $(foreach architecture, $(ARCHITECTURES), --platform $(os)/$(architecture)))
+REPOSITORY_SERVER ?= hybrid-attestor-server 
+REPOSITORY_AGENT ?= hybrid-attestor-agent
+IMAGE_TAG ?= latest
 
 BUILD_TARGETS := $(foreach binary, $(BINARIES), $(foreach os, $(OSES), $(foreach architecture, $(ARCHITECTURES), $(binary)-$(os)-$(architecture))))
 DOCKER_TARGETS := $(foreach binary, $(BINARIES), $(binary)-docker)
@@ -34,10 +37,11 @@ test-unit:
 test-integration:
 	bash ./test/integration/test.sh
 
-docker: $(DOCKER_TARGETS)
-$(DOCKER_TARGETS):
-	docker build -f ./dev/docker/$(target_software_type).Dockerfile $(PLATFORMS) --build-arg BINARY=$(target_binary) -t $(DOCKER_HUB)/$(target_binary_hyphens):$(VERSION) .
-	docker push $(DOCKER_HUB)/$(target_binary_hyphens):$(VERSION)
+docker:
+	docker build -f hybrid/dev/docker/server.Dockerfile -t $DOCKER_HUB/$REPOSITORY_SERVER:$IMAGE_TAG .
+	docker build -f hybrid/dev/docker/agent.Dockerfile -t $DOCKER_HUB/$REPOSITORY_AGENT:$IMAGE_TAG .
+	docker push $DOCKER_HUB/$REPOSITORY_SERVER:$IMAGE_TAG
+	docker push $DOCKER_HUB/$REPOSITORY_AGENT:$IMAGE_TAG
 
 docker-build:
 	CGO_ENABLED=0 GOOS=$(TARGETOS) GOARCH=$(TARGETARCH) go build -ldflags="-s -w -extldflags -static" -o ${BINARY} cmd/${BINARY}/main.go
