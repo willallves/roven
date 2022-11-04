@@ -53,13 +53,9 @@ jobs:
         docker push $REGISTRY/${{ secrets.AWS_ACCOUNT_ID }}/$REPOSITORY_SERVER:$IMAGE_TAG
         docker push $REGISTRY/${{ secrets.AWS_ACCOUNT_ID }}/$REPOSITORY_AGENT:$IMAGE_TAG
 
-    - name: Create cluster
-      run: |
-        eksctl create cluster --name ${{ secrets.AWS_TEST_CLUSTER }} --region ${{ secrets.AWS_REGION }} --version 1.23 --without-nodegroup
-
     - name: Update and set context
       run: |
-        aws eks update-kubeconfig --region ${{ secrets.AWS_REGION }} --name ${{ secrets.AWS_TEST_CLUSTER }} &&
+        aws eks update-kubeconfig --region ${{ secrets.AWS_REGION }} --name ${{ secrets.AWS_TEST_CLUSTER }}
         kubectl config use-context arn:aws:eks:${{ secrets.AWS_REGION }}:${{ secrets.AWS_ACCOUNT_ID }}:cluster/${{ secrets.AWS_TEST_CLUSTER }}
 
     - name: Deploy  
