@@ -2,5 +2,4 @@
 
 DIR=../../../../
 create-ns "spire"
-make -C $DIR setup-integration:
 make -C $DIR deploy-spire-eks
