@@ -34,8 +34,8 @@ jobs:
 
     - name: Update and set context
       run: |
-        aws eks update-kubeconfig --region ${{ secrets.AWS_REGION }} --name ${{ secrets.AWS_CLUSTER }} &&
-        kubectl config use-context arn:aws:eks:${{ secrets.AWS_REGION }}:${{ secrets.AWS_ACCOUNT_ID }}:cluster/${{ secrets.AWS_CLUSTER }}
+        aws eks update-kubeconfig --region ${{ secrets.AWS_REGION_T }} --name ${{ secrets.AWS_CLUSTER }} &&
+        kubectl config use-context arn:aws:eks:${{ secrets.AWS_REGION_T }}:${{ secrets.AWS_ACCOUNT_ID }}:cluster/${{ secrets.AWS_CLUSTER }}
 
     - name: Run integration test
       run: |
