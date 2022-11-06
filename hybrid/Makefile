@@ -32,7 +32,7 @@ test-unit:
 	go test ./...
 
 test-integration:
-	bash ./test/integration/run.sh
+	bash ./test/integration/test.sh
 
 docker: $(DOCKER_TARGETS)
 $(DOCKER_TARGETS):
