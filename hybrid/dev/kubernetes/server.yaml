@@ -63,7 +63,7 @@ data:
           plugins {
             k8s_psat {
               clusters = {
-                "integration-hybrid-node-attestor" = {
+                "hybrid-node-attestor-created" = {
                   use_token_review_api_validation = true
                   service_account_allow_list = ["spire:spire-agent"]
                 }

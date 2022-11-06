@@ -3,15 +3,12 @@
 EKS_DIR ?= ./dev/kubernetes
 BINARIES ?= hybrid_server hybrid_agent
 OSES ?= linux
-ARCHITECTURES ?= amd64 arm64
+ARCHITECTURES ?= amd64
 VERSION ?= latest
 DOCKER_HUB ?= public.ecr.aws/n9c4h4j5
 DOCKER_TAG_AGENT ?= hybrid-attestor-server:latest hybrid-attestor-agent:latest 
 BUILD_DIR ?= ./build
 PLATFORMS ?= $(foreach os, $(OSES), $(foreach architecture, $(ARCHITECTURES), --platform $(os)/$(architecture)))
-REPOSITORY_SERVER ?= hybrid-attestor-server
-REPOSITORY_AGENT ?= hybrid-attestor-agent
-IMAGE_TAG ?= latest
 
 BUILD_TARGETS := $(foreach binary, $(BINARIES), $(foreach os, $(OSES), $(foreach architecture, $(ARCHITECTURES), $(binary)-$(os)-$(architecture))))
 DOCKER_TARGETS := $(foreach binary, $(BINARIES), $(binary)-docker)
@@ -35,19 +32,7 @@ test-unit:
 	go test ./...
 
 test-integration:
-	bash ./test/integration/test.sh
-
-setup-integration:
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -extldflags -static" -o ./build/linux/amd64/hybrid_server cmd/hybrid_server/main.go
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -extldflags -static" -o ./build/linux/amd64/hybrid_agent cmd/hybrid_agent/main.go
-
-	docker build -f ./dev/docker/server.Dockerfile --build-arg BINARY=hybrid_server -t $(DOCKER_HUB)/$(REPOSITORY_SERVER):$(IMAGE_TAG) .
-	docker build -f ./dev/docker/agent.Dockerfile --build-arg BINARY=hybrid_agent -t $(DOCKER_HUB)/$(REPOSITORY_AGENT):$(IMAGE_TAG) .
-
-	docker push $(DOCKER_HUB)/$(REPOSITORY_SERVER):$(IMAGE_TAG)
-	docker push $(DOCKER_HUB)/$(REPOSITORY_AGENT):$(IMAGE_TAG)
-
-
+	bash ./test/integration/run.sh
 
 docker: $(DOCKER_TARGETS)
 $(DOCKER_TARGETS):

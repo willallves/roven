@@ -3,5 +3,5 @@
 DIR=../../../../
 
 delete-ns "spire"
-
-make -C $DIR setup-integration
+make -C $DIR build
+make -C $DIR docker

@@ -29,24 +29,11 @@ jobs:
       with:
         registry-type: public
 
-    - name: Install eksctl
-      run: |
-        curl --silent --location "https://github.com/weaveworks/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz" | tar xz -C /tmp && mv /tmp/eksctl /usr/local/bin 
-
-    - name: Create cluster
-      run: |
-        eksctl create cluster --name ${{ secrets.AWS_TEST_CLUSTER }} --region ${{ secrets.AWS_REGION }} --without-nodegroup
-
     - name: Update and set context
       run: |
-        aws eks update-kubeconfig --region ${{ secrets.AWS_REGION }} --name ${{ secrets.AWS_TEST_CLUSTER }} &&
-        kubectl config use-context arn:aws:eks:${{ secrets.AWS_REGION }}:${{ secrets.AWS_ACCOUNT_ID }}:cluster/${{ secrets.AWS_TEST_CLUSTER }}
+        aws eks update-kubeconfig --region ${{ secrets.AWS_REGION }} --name ${{ secrets.AWS_CLUSTER }} &&
+        kubectl config use-context arn:aws:eks:${{ secrets.AWS_REGION }}:${{ secrets.AWS_ACCOUNT_ID }}:cluster/${{ secrets.AWS_CLUSTER }}
 
     - name: Run integration test
       run: |
         ./hybrid/test/integration/test.sh
-
-    - name: Delete cluster
-      run: |
-        eksctl delete cluster --name ${{ secrets.AWS_TEST_CLUSTER }}
-        
