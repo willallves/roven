@@ -32,7 +32,7 @@ data:
         plugin_data {
           plugins {
             k8s_psat {
-              cluster = "hybrid-node-attestor"
+              cluster = "$HYBRID_CLUSTER_NAME"
             }
             aws_iid {
                accountId = "$AWS_ACCOUNT_ID"
