@@ -3,6 +3,7 @@ package hybrid_agent
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"reflect"
 	"strings"
 
@@ -60,8 +61,10 @@ func (p *HybridPluginAgent) AidAttestation(stream nodeattestorv1.NodeAttestor_Ai
 		elem := reflect.ValueOf(p.pluginList[i].Plugin)
 		result := elem.MethodByName("AidAttestation").Call([]reflect.Value{reflect.ValueOf(newInterceptor)})
 		err := result[0].Interface()
+
 		if err != nil {
-			return status.Errorf(codes.Internal, "An error ocurred when during AidAttestation.")
+			str := fmt.Sprintf("%v", err)
+			return status.Errorf(codes.Internal, "An error ocurred during AidAttestation of the %v plugin. The error was %v", p.pluginList[i].PluginName, str)
 		}
 	}
 
@@ -74,7 +77,11 @@ func (p *HybridPluginAgent) AidAttestation(stream nodeattestorv1.NodeAttestor_Ai
 }
 
 func (p *HybridPluginAgent) Configure(ctx context.Context, req *configv1.ConfigureRequest) (*configv1.ConfigureResponse, error) {
-	pluginData, _ := p.decodeStringAndTransformToAstNode(req.HclConfiguration)
+	pluginData, configError := p.decodeStringAndTransformToAstNode(req.HclConfiguration)
+
+	if configError != nil {
+		return &configv1.ConfigureResponse{}, configError
+	}
 
 	pluginNames, pluginsData := p.parseReceivedData(pluginData)
 
@@ -88,7 +95,13 @@ func (p *HybridPluginAgent) Configure(ctx context.Context, req *configv1.Configu
 		elem := reflect.ValueOf(p.pluginList[i].Plugin)
 		req.HclConfiguration = pluginsData[p.pluginList[i].PluginName]
 
-		result := elem.MethodByName("Configure").Call([]reflect.Value{reflect.ValueOf(ctx), reflect.ValueOf(req)})
+		methodCall := elem.MethodByName("Configure")
+
+		if methodCall.Kind() == 0 {
+			return &configv1.ConfigureResponse{}, status.Errorf(codes.Internal, "Error configuring plugin %v.", p.pluginList[i].PluginName)
+		}
+
+		result := methodCall.Call([]reflect.Value{reflect.ValueOf(ctx), reflect.ValueOf(req)})
 		err := result[1]
 
 		if !err.IsNil() {
@@ -117,24 +130,26 @@ func (p *HybridPluginAgent) decodeStringAndTransformToAstNode(hclData string) (c
 	return astNodeData, nil
 }
 
-func (p *HybridPluginAgent) parseReceivedData(data common.Generics) ([]string, map[string]string) {
-	str := map[string]string{}
-	plugins := []string{}
+func (p *HybridPluginAgent) parseReceivedData(data common.Generics) (pluginNames []string, pluginsData map[string]string) {
+	pluginNames = []string{}
+	pluginsData = map[string]string{}
 	for key := range data {
 		var data_ bytes.Buffer
 		printer.DefaultConfig.Fprint(&data_, data[key])
-		str[key] = strings.Replace(strings.Replace(data_.String(), "{", "", -1), "}", "", -1)
-		plugins = append(plugins, key)
+		pluginInformedConfig := strings.Replace(strings.Replace(data_.String(), "{", "", -1), "}", "", -1)
+		pluginsData[key] = pluginInformedConfig
+		pluginNames = append(pluginNames, key)
 	}
-	return plugins, str
+
+	return
 }
 
 func (p *HybridPluginAgent) initPlugins(pluginList []string) ([]common.Types, error) {
-	attestors := make([]common.Types, 0)
+	attestors := make([]common.Types, len(pluginList))
 
-	for i := 0; i < len(pluginList); i++ {
+	for index, item := range pluginList {
 		var plugin common.Types
-		switch pluginList[i] {
+		switch item {
 		case "aws_iid":
 			plugin.PluginName = "aws_iid"
 			plugin.Plugin = awsiid.New()
@@ -148,11 +163,10 @@ func (p *HybridPluginAgent) initPlugins(pluginList []string) ([]common.Types, er
 			plugin.PluginName = "gcp_iit"
 			plugin.Plugin = gcpiit.New()
 		default:
-			plugin.PluginName = ""
-			plugin.Plugin = nil
+			return nil, status.Error(codes.FailedPrecondition, "Please provide one of the supported plugins.")
 		}
 
-		attestors = append(attestors, plugin)
+		attestors[index] = plugin
 	}
 
 	for i := 0; i < len(attestors); i++ {

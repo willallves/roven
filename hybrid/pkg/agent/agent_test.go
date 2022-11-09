@@ -35,35 +35,67 @@ func builtin(p *HybridPluginAgent) catalog.BuiltIn {
 	)
 }
 
-var pluginsString = `plugins {
+var pluginsString = `
+	plugins {
 		k8s_psat {
-		cluster = "hybrid-node-attestor"
+			cluster = "hybrid-node-attestor"
 		}
 		aws_iid {
-		accountId = 728109058939   
+			accountId = 123456789   
 		}
 	}`
 
-var pluginsStringInvalidData = `plugins {
+var pluginsStringInvalidData = `
+	plugins {
 		k8s_psat {
 		}
 		aws_iida {
 		}
-	  }`
+	}`
 
-var pluginsStringErrorData = `plugins {
-k8s_psat {
-}
-aws_iid {
-	accountId {
-		error=true
-	}
-}
-}`
+var pluginsStringErrorData = `
+	plugins {
+		k8s_psat {
+		}
+		aws_iid {
+			accountId {
+				error=true
+			}
+		}
+	}`
 
 var pluginsStringEmptyData = `plugins {}`
-var payloadOneData = `{"cluster":"hybrid-node-attestor_fake","token":"part1.part2.part3-part4-part5--part6-part7"}`
-var payloadTwoData = `{"document":"{\n  \"accountId\" : \"123456789_TEST\",\n  \"architecture\" : \"x86_64\",\n  \"availabilityZone\" : \"us-east-2a\",\n  \"billingProducts\" : null,\n  \"devpayProductCodes\" : null,\n  \"marketplaceProductCodes\" : null,\n  \"imageId\" : \"ami-010203040506\",\n  \"instanceId\" : \"i-010203040506\",\n  \"instanceType\" : \"m5.large\",\n  \"kernelId\" : null,\n  \"pendingTime\" : \"2022-09-22T03:22:21Z\",\n  \"privateIp\" : \"192.168.77.116\",\n  \"ramdiskId\" : null,\n  \"region\" : \"us-east-2\",\n  \"version\" : \"2017-09-30\"\n}","signature":"eO4+90PuN8bZaIJjpBe1/mAzPhvSrrhLATwPFaOPzK5ZSUpsbVOuK2tXjMYkx+ora7mcaL0G45li\nbZLGUIee+DF/YZ8/5RuNf1Z8yn+5e2AqLvNhIsF5IOVZWk8yDvl/jBJCcW8GaRblldWdMoDiC2OA\nqVyRjyJCXUySNu0JADE="}`
+var pluginsInvalidPlugins = `
+	plugins {
+		test_plugin{
+		}
+	}`
+var payloadOneData = `
+	{
+		"cluster":"hybrid-node-attestor_fake",
+		"token":"part1.part2.part3-part4-part5--part6-part7"
+	}`
+var payloadTwoData = `
+	{
+		"document":"{
+			"accountId" : "123456789_TEST",
+			"architecture" : "x86_64",
+			"availabilityZone" : "us-east-2a",
+			"billingProducts" : null,
+			"devpayProductCodes" : null,
+			"marketplaceProductCodes" : null,
+			"imageId" : "ami-010203040506",
+			"instanceId" : "i-010203040506",
+			"instanceType" : "m5.large",
+			"kernelId" : null,
+			"pendingTime" : "2022-09-22T03:22:21Z",
+			"privateIp" : "192.168.77.116",
+			"ramdiskId" : null,
+			"region" : "us-east-2",
+			"version" : "2017-09-30"
+		}",
+		"signature":"eO4+90PuN8bZaIJjpBe1/mAzPhvSrrhLATwPFaOPzK5ZSUpsbVOuK2tXjMYkx+ora7mcaL0G45li\nbZLGUIee+DF/YZ8/5RuNf1Z8yn+5e2AqLvNhIsF5IOVZWk8yDvl/jBJCcW8GaRblldWdMoDiC2OA\nqVyRjyJCXUySNu0JADE="
+	}`
 
 // ------------------------------------------------------------------------------------------------------------------------
 
@@ -94,7 +126,7 @@ func TestMethodsThatParseHclConfig(t *testing.T) {
 	require.Contains(t, pluginsData, "k8s_psat", "Could not access k8s_psat plugin by index after parsing")
 	require.Equal(t, "\n  cluster = \"hybrid-node-attestor\"\n", pluginsData["k8s_psat"], "k8s_psat plugin data was not extracted properly")
 	require.Contains(t, pluginsData, "aws_iid", "Could not access aws_iid plugin by index after parsing")
-	require.Equal(t, "\n  accountId = 728109058939\n", pluginsData["aws_iid"], "aws_iid plugin data was not extracted properly")
+	require.Equal(t, "\n  accountId = 123456789\n", pluginsData["aws_iid"], "aws_iid plugin data was not extracted properly")
 }
 
 func TestSupportedPluginsInitialization(t *testing.T) {
@@ -140,8 +172,20 @@ func TestHybridPluginConfiguration(t *testing.T) {
 		plugintest.CoreConfig(coreConfig),
 		plugintest.Configure(pluginsStringInvalidData),
 	)
-	require.EqualError(t, errConfig, "rpc error: code = FailedPrecondition desc = Some of the supplied plugins are not supported or are invalid", "Error configuring plugin: %w", errConfig)
+	require.EqualError(t, errConfig, "rpc error: code = FailedPrecondition desc = Please provide one of the supported plugins.", "Error configuring plugin: %w", errConfig)
 	require.Len(t, plugin.pluginList, 0, "All plugins used by Hybrid node attestor should fail on config with unsupported plugins.")
+
+	interceptor = new(InterceptorWrapper)
+	plugin = HybridPluginAgent{interceptor: interceptor}
+
+	plugintest.Load(t, builtin(&plugin), nil,
+		plugintest.CaptureConfigureError(&errConfig),
+		plugintest.CoreConfig(coreConfig),
+		plugintest.Configure(pluginsInvalidPlugins),
+	)
+
+	require.EqualError(t, errConfig, "rpc error: code = FailedPrecondition desc = Please provide one of the supported plugins.", "Error configuring plugin: %w", errConfig)
+	require.Len(t, plugin.pluginList, 0, "Hybrid node attestor should load no plugins on empty config.")
 
 	interceptor = new(InterceptorWrapper)
 	plugin = HybridPluginAgent{interceptor: interceptor}
@@ -263,7 +307,7 @@ func TestHybridPluginAgentAidAttestation(t *testing.T) {
 	hybridPlugin = HybridPluginAgent{pluginList: pluginList, logger: hclog.Default(), interceptor: interceptorFake}
 
 	aidAttestation = hybridPlugin.AidAttestation(stream)
-	require.EqualError(t, aidAttestation, "rpc error: code = Internal desc = An error ocurred when during AidAttestation.", "Error calling plugin: %w", aidAttestation)
+	require.EqualError(t, aidAttestation, "rpc error: code = Internal desc = An error ocurred during AidAttestation of the aws_iid plugin. The error was rpc error: code = InvalidArgument desc = AidAttestation error", "Error calling plugin: %w", aidAttestation)
 }
 
 // ------------------------------------------------------------------------------------------------------------------------

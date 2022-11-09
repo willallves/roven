@@ -78,3 +78,17 @@ Change the credentials in the server.yaml and agent.yaml that are in the hybrid/
 
 You should now be able to see the running agent/server node attestor. First set the corresponding environment variables with their required values ($AWS_SECRET_ACCESS_KEY, $AWS_ACCESS_KEY_ID, $AWS_ASSUME_ROLE, $AWS_ACCOUNT_ID)
 
+## Supported plugins
+The following list show the supported built-in plugins:
+
+| Plugin     | Supported          |
+| -------    | ------------------ |
+| aws_iid    | :heavy_check_mark: |
+| azure_msi  | :heavy_check_mark: |
+| gcp_iit    | :heavy_check_mark: |
+| k8s_psat   | :heavy_check_mark: |
+| join_token | :x: |
+| k8s_sat    | :x: |
+| sshpop     | :x: |
+| tpm_devid  | :x: |
+| s509pop    | :x: |
