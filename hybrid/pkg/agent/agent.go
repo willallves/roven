@@ -63,8 +63,8 @@ func (p *HybridPluginAgent) AidAttestation(stream nodeattestorv1.NodeAttestor_Ai
 		err := result[0].Interface()
 
 		if err != nil {
-			str := fmt.Sprintf("%v", err)
-			return status.Errorf(codes.Internal, "An error ocurred during AidAttestation of the %v plugin. The error was %v", p.pluginList[i].PluginName, str)
+			errorString := fmt.Sprintf("%v", err)
+			return status.Errorf(codes.Internal, "An error ocurred during AidAttestation of the %v plugin. The error was %v", p.pluginList[i].PluginName, errorString)
 		}
 	}
 
