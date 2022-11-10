@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"strings"
 
-	hclog "github.com/hashicorp/go-hclog"
+	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/hcl"
 	"github.com/hashicorp/hcl/hcl/printer"
 
@@ -34,8 +34,7 @@ type HybridPluginAgent struct {
 }
 
 func New() *HybridPluginAgent {
-	interceptor := new(HybridPluginAgentInterceptor)
-	return &HybridPluginAgent{interceptor: interceptor}
+	return &HybridPluginAgent{interceptor: new(HybridPluginAgentInterceptor)}
 }
 
 func (p *HybridPluginAgent) SetLogger(logger hclog.Logger) {
@@ -51,12 +50,12 @@ func (p *HybridPluginAgent) AidAttestation(stream nodeattestorv1.NodeAttestor_Ai
 	p.interceptor.SetContext(stream.Context())
 	p.interceptor.SetLogger(p.logger)
 
-	interceptors := []AgentInterceptorInterface{}
+	interceptors := make([]AgentInterceptorInterface, len(p.pluginList))
 
 	for i := 0; i < len(p.pluginList); i++ {
-		var newInterceptor AgentInterceptorInterface = p.interceptor.SpawnInterceptor()
+		newInterceptor := p.interceptor.SpawnInterceptor()
 		newInterceptor.SetPluginName(p.pluginList[i].PluginName)
-		interceptors = append(interceptors, newInterceptor)
+		interceptors[i] = newInterceptor
 
 		elem := reflect.ValueOf(p.pluginList[i].Plugin)
 		result := elem.MethodByName("AidAttestation").Call([]reflect.Value{reflect.ValueOf(newInterceptor)})
