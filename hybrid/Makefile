@@ -3,7 +3,7 @@
 EKS_DIR ?= ./dev/kubernetes
 BINARIES ?= hybrid_server hybrid_agent
 OSES ?= linux
-ARCHITECTURES ?= amd64 arm64
+ARCHITECTURES ?= amd64
 VERSION ?= latest
 DOCKER_HUB ?= ${DOCKER_HUB}
 DOCKER_TAG_AGENT ?= hybrid-attestor-server:latest hybrid-attestor-agent:latest 
@@ -32,7 +32,7 @@ test-unit:
 	go test ./...
 
 test-integration:
-	bash ./test/integration/run.sh
+	bash ./test/integration/test.sh
 
 docker: $(DOCKER_TARGETS)
 $(DOCKER_TARGETS):

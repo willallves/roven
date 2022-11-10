@@ -8,8 +8,13 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout
-      uses: actions/checkout@v2
+    - name: Checkout Repository
+      uses: actions/checkout@v3
+
+    - name: Setup Go
+      uses: actions/setup-go@v3
+      with:
+        go-version: '>=1.17.0'
 
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v1
@@ -17,14 +22,47 @@ jobs:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: ${{ secrets.AWS_REGION }}
-
-    - name: Login to Amazon ECR
-      id: login-ecr
+      
+    - name: Login to Amazon ECR Public
+      id: login-ecr-public
       uses: aws-actions/amazon-ecr-login@v1
+      with:
+        registry-type: public
 
-    - name: Build, push,  image to Amazon ECR
-      id: build-image
-      env:
-        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+    - name: Install eksctl
+      run: |
+        curl --silent --location "https://github.com/weaveworks/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz" | tar xz -C /tmp && mv /tmp/eksctl /usr/local/bin 
+
+    - name: Create cluster
+      run: |
+        eksctl create cluster --name ${{ secrets.AWS_TEST_CLUSTER }} --region ${{ secrets.AWS_REGION }} --version 1.22
+
+
+    - name: Create Addon
+      run : |
+        eksctl create addon --name aws-ebs-csi-driver --cluster ${{ secrets.AWS_TEST_CLUSTER }} --service-account-role-arn arn:aws:iam::728109058939:role/HybridNodeAttestor --force
+
+    - name: Get Addon
+      run: |
+        eksctl get addon --name aws-ebs-csi-driver --cluster ${{ secrets.AWS_TEST_CLUSTER }}
+
+    - name: Update Addon
+      run: |
+        eksctl update addon --name aws-ebs-csi-driver --version v1.13.0-eksbuild.1 --cluster ${{ secrets.AWS_TEST_CLUSTER }} --force
+
+    - name: Update context
+      run: |
+        aws eks update-kubeconfig --region ${{ secrets.AWS_REGION }} --name ${{ secrets.AWS_TEST_CLUSTER }}
+
+    - name: Set Context
+      run: |
+        kubectl config use-context arn:aws:eks:${{ secrets.AWS_REGION }}:${{ secrets.AWS_ACCOUNT_ID }}:cluster/${{ secrets.AWS_TEST_CLUSTER }}
+
+    - name: Run integration test
       run: |
         ./hybrid/test/integration/test.sh
+
+    - name: Delete cluster
+      run: |
+        eksctl delete cluster --name ${{ secrets.AWS_TEST_CLUSTER }} --region ${{ secrets.AWS_REGION }}
+        
