@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 
@@ -113,18 +114,21 @@ func (p *HybridPluginServer) Attest(stream nodeattestorv1.NodeAttestor_AttestSer
 		interceptors = append(interceptors, newInterceptor)
 
 		for _, plugin := range p.pluginList {
-			if plugin.PluginName == name {
-				elem := reflect.ValueOf(plugin.Plugin)
-				elem.MethodByName("SetLogger").Call([]reflect.Value{reflect.ValueOf(p.logger)})
-				result := elem.MethodByName("Attest").Call([]reflect.Value{reflect.ValueOf(newInterceptor)})
-				if result[0].Interface() != nil {
-					callError, _ := status.FromError(result[0].Interface().(error))
-					return status.Errorf(codes.Internal, callError.Message())
-				}
-				processed = true
-				break
+			if plugin.PluginName != name {
+				continue
 			}
+
+			elem := reflect.ValueOf(plugin.Plugin)
+			elem.MethodByName("SetLogger").Call([]reflect.Value{reflect.ValueOf(p.logger)})
+			result := elem.MethodByName("Attest").Call([]reflect.Value{reflect.ValueOf(newInterceptor)})
+			if result[0].Interface() != nil {
+				callError, _ := status.FromError(result[0].Interface().(error))
+				return status.Errorf(codes.Internal, callError.Message())
+			}
+			processed = true
+			break
 		}
+
 		if !processed {
 			return status.Errorf(codes.InvalidArgument, "plugin %s not found", name)
 		}
@@ -196,6 +200,8 @@ func (p *HybridPluginServer) Configure(ctx context.Context, req *configv1.Config
 func (p *HybridPluginServer) decodeStringAndTransformToAstNode(hclData string) (common.Generics, error) {
 	var genericData common.GenericPluginSuper
 	if err := hcl.Decode(&genericData, hclData); err != nil {
+		errorString := fmt.Sprintf("%v", err)
+		return nil, status.Errorf(codes.Internal, "Could not decode HCL config. The error was %v.", errorString)
 	}
 
 	var data bytes.Buffer
@@ -204,6 +210,8 @@ func (p *HybridPluginServer) decodeStringAndTransformToAstNode(hclData string) (
 	var astNodeData common.Generics
 
 	if err := hcl.Decode(&astNodeData, data.String()); err != nil {
+		errorString := fmt.Sprintf("%v", err)
+		return nil, status.Errorf(codes.Internal, "Could not decode HCL config. The error was %v.", errorString)
 	}
 
 	return astNodeData, nil
