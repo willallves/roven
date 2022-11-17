@@ -35,8 +35,7 @@ jobs:
 
     - name: Create cluster
       run: |
-        eksctl create cluster --name ${{ secrets.AWS_TEST_CLUSTER }} --region ${{ secrets.AWS_REGION }} --version 1.22
-
+        eksctl create cluster --name ${{ secrets.AWS_TEST_CLUSTER }} --region ${{ secrets.AWS_REGION }}
 
     - name: Create Addon
       run : |
@@ -56,6 +55,7 @@ jobs:
 
     - name: Set Context
       run: |
+        aws eks update-kubeconfig --region ${{ secrets.AWS_REGION }} --name ${{ secrets.AWS_TEST_CLUSTER }} &&
         kubectl config use-context arn:aws:eks:${{ secrets.AWS_REGION }}:${{ secrets.AWS_ACCOUNT_ID }}:cluster/${{ secrets.AWS_TEST_CLUSTER }}
 
     - name: Run integration test
