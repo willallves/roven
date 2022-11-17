@@ -47,8 +47,7 @@ type HybridPluginServer struct {
 }
 
 func New() *HybridPluginServer {
-	interceptor := new(HybridPluginServerInterceptor)
-	return &HybridPluginServer{interceptor: interceptor}
+	return &HybridPluginServer{interceptor: new(HybridPluginServerInterceptor)}
 }
 
 func (p *HybridPluginServer) SetLogger(logger hclog.Logger) {
@@ -57,7 +56,6 @@ func (p *HybridPluginServer) SetLogger(logger hclog.Logger) {
 
 func (p *HybridPluginServer) BrokerHostServices(broker pluginsdk.ServiceBroker) error {
 	p.broker = broker
-
 	return nil
 }
 
@@ -95,12 +93,12 @@ func (p *HybridPluginServer) Attest(stream nodeattestorv1.NodeAttestor_AttestSer
 		return status.Errorf(codes.InvalidArgument, "request payload is required")
 	}
 
-	var messageList common.PluginMessageList = common.PluginMessageList{}
+	var messageList common.PluginMessageList
 	if err := json.Unmarshal(payloadRequest.Payload, &messageList); err != nil {
 		return status.Errorf(codes.InvalidArgument, "unable to unmarshal payload: %v", err)
 	}
-	interceptors := []ServerInterceptorInterface{}
-	for _, message := range messageList.Messages {
+	interceptors := make([]ServerInterceptorInterface, len(messageList.Messages))
+	for index, message := range messageList.Messages {
 		name := message.PluginName
 		processed := false
 		newReq := &nodeattestorv1.AttestRequest{
@@ -109,9 +107,9 @@ func (p *HybridPluginServer) Attest(stream nodeattestorv1.NodeAttestor_AttestSer
 			},
 		}
 
-		var newInterceptor ServerInterceptorInterface = p.interceptor.SpawnInterceptor()
+		newInterceptor := p.interceptor.SpawnInterceptor()
 		newInterceptor.SetReq(newReq)
-		interceptors = append(interceptors, newInterceptor)
+		interceptors[index] = newInterceptor
 
 		for _, plugin := range p.pluginList {
 			if plugin.PluginName != name {
@@ -192,7 +190,9 @@ func (p *HybridPluginServer) Configure(ctx context.Context, req *configv1.Config
 		}
 	}
 
-	p.setBrokerHostServices()
+	if brokerHostServices := p.setBrokerHostServices(); brokerHostServices != nil {
+		return &configv1.ConfigureResponse{}, brokerHostServices
+	}
 
 	return &configv1.ConfigureResponse{}, nil
 }
