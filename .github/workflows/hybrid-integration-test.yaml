@@ -35,7 +35,7 @@ jobs:
 
     - name: Create cluster
       run: |
-        eksctl create cluster --name ${{ secrets.AWS_TEST_CLUSTER }} --region ${{ secrets.AWS_REGION }}
+        eksctl create cluster --name ${{ secrets.AWS_TEST_CLUSTER }} --region ${{ secrets.AWS_REGION }} --version 1.22
 
     - name: Create Addon
       run : |
