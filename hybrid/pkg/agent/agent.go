@@ -63,7 +63,7 @@ func (p *HybridPluginAgent) AidAttestation(stream nodeattestorv1.NodeAttestor_Ai
 
 		if err != nil {
 			errorString := fmt.Sprintf("%v", err)
-			return status.Errorf(codes.Internal, "An error ocurred during AidAttestation of the %v plugin. The error was %v", p.pluginList[i].PluginName, errorString)
+			return status.Errorf(codes.Internal, "An error occurred during AidAttestation of the %v plugin. The error was %v", p.pluginList[i].PluginName, errorString)
 		}
 	}
 
@@ -132,8 +132,9 @@ func (p *HybridPluginAgent) decodeStringAndTransformToAstNode(hclData string) (c
 func (p *HybridPluginAgent) parseReceivedData(data common.Generics) (pluginNames []string, pluginsData map[string]string) {
 	pluginNames = []string{}
 	pluginsData = map[string]string{}
+	var data_ bytes.Buffer
 	for key := range data {
-		var data_ bytes.Buffer
+		data_.Reset()
 		printer.DefaultConfig.Fprint(&data_, data[key])
 		pluginInformedConfig := strings.Replace(strings.Replace(data_.String(), "{", "", -1), "}", "", -1)
 		pluginsData[key] = pluginInformedConfig
