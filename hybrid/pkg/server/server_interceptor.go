@@ -69,15 +69,14 @@ func (m *HybridPluginServerInterceptor) setCustomStream(stream nodeattestorv1.No
 }
 
 func (m *HybridPluginServerInterceptor) Send(resp *nodeattestorv1.AttestResponse) error {
-	switch x := resp.Response.(type) {
-	case *nodeattestorv1.AttestResponse_AgentAttributes:
+	if x, ok := resp.GetResponse().(*nodeattestorv1.AttestResponse_AgentAttributes); ok {
+
 		m.combinedSelectors = append(m.combinedSelectors, x.AgentAttributes.SelectorValues...)
 		if len(m.spiffeID) == 0 {
 			m.spiffeID = x.AgentAttributes.SpiffeId
 		}
 
 		m.canReattest = append(m.canReattest, x.AgentAttributes.CanReattest)
-	default:
 	}
 
 	return nil
