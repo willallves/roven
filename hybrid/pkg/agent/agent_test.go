@@ -17,7 +17,7 @@ import (
 	"github.com/spiffe/spire/pkg/agent/plugin/nodeattestor/k8spsat"
 	"github.com/spiffe/spire/pkg/common/catalog"
 	"github.com/spiffe/spire/test/plugintest"
-	grpc "google.golang.org/grpc"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -307,7 +307,7 @@ func TestHybridPluginAgentAidAttestation(t *testing.T) {
 	hybridPlugin = HybridPluginAgent{pluginList: pluginList, logger: hclog.Default(), interceptor: interceptorFake}
 
 	aidAttestation = hybridPlugin.AidAttestation(stream)
-	require.EqualError(t, aidAttestation, "rpc error: code = Internal desc = An error ocurred during AidAttestation of the aws_iid plugin. The error was rpc error: code = InvalidArgument desc = AidAttestation error", "Error calling plugin: %w", aidAttestation)
+	require.EqualError(t, aidAttestation, "rpc error: code = Internal desc = An error occurred during AidAttestation of the aws_iid plugin. The error was rpc error: code = InvalidArgument desc = AidAttestation error", "Error calling plugin: %w", aidAttestation)
 }
 
 // ------------------------------------------------------------------------------------------------------------------------
