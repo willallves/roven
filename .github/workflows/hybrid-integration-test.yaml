@@ -60,6 +60,8 @@ jobs:
         kubectl config use-context arn:aws:eks:${{ secrets.AWS_REGION }}:${{ secrets.AWS_ACCOUNT_ID }}:cluster/${{ secrets.AWS_TEST_CLUSTER }}
 
     - name: Run integration test
+      env:
+        DOCKER_HUB: ${{ secrets.DOCKER_HUB }}
       run: |
         ./hybrid/test/integration/test.sh
 
