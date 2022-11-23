@@ -48,7 +48,6 @@ deploy-spire-eks:
 	kubectl delete --ignore-not-found namespace spire
 	envsubst < $(EKS_DIR)/server.yaml | kubectl apply -f -
 	envsubst < $(EKS_DIR)/agent.yaml | kubectl apply -f -
-	envsubst < $(EKS_DIR)/aws-auth-cm.yaml | kubectl apply -f -
 
 clean:
 	rm -rf $(BUILD_DIR)
