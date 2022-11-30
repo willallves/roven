@@ -1,4 +1,4 @@
-package hybrid_agent
+package hybridagent
 
 import (
 	"context"
@@ -24,10 +24,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func BuiltIn() catalog.BuiltIn {
-	return builtin(&HybridPluginAgent{})
-}
-
 func builtin(p *HybridPluginAgent) catalog.BuiltIn {
 	return catalog.MakeBuiltIn("hybrid-node-attestor",
 		nodeattestorv1.NodeAttestorPluginServer(p),
@@ -49,7 +45,7 @@ var pluginsStringInvalidData = `
 	plugins {
 		k8s_psat {
 		}
-		aws_iida {
+		invalid_plugin_name {
 		}
 	}`
 
@@ -70,12 +66,12 @@ var pluginsInvalidPlugins = `
 		test_plugin{
 		}
 	}`
-var payloadOneData = `
+var k8sPayloadData = `
 	{
 		"cluster":"hybrid-node-attestor_fake",
-		"token":"part1.part2.part3-part4-part5--part6-part7"
+		"token":"part1.part2.part3-part4-part5-part6-part7"
 	}`
-var payloadTwoData = `
+var awsPayloadData = `
 	{
 		"document":"{
 			"accountId" : "123456789_TEST",
@@ -131,7 +127,7 @@ func TestMethodsThatParseHclConfig(t *testing.T) {
 
 func TestSupportedPluginsInitialization(t *testing.T) {
 	interceptor := new(InterceptorWrapper)
-	plugin := HybridPluginAgent{interceptor: interceptor}
+	plugin := HybridPluginAgent{interceptor: interceptor, logger: hclog.Default().Named("test_logger")}
 
 	plugins, err := plugin.initPlugins([]string{"aws_iid", "k8s_psat", "azure_msi", "gcp_iit"})
 
@@ -172,7 +168,7 @@ func TestHybridPluginConfiguration(t *testing.T) {
 		plugintest.CoreConfig(coreConfig),
 		plugintest.Configure(pluginsStringInvalidData),
 	)
-	require.EqualError(t, errConfig, "rpc error: code = FailedPrecondition desc = Please provide one of the supported plugins.", "Error configuring plugin: %w", errConfig)
+	require.EqualError(t, errConfig, "rpc error: code = FailedPrecondition desc = please provide one of the supported plugins.", "Error configuring plugin: %w", errConfig)
 	require.Len(t, plugin.pluginList, 0, "All plugins used by Hybrid node attestor should fail on config with unsupported plugins.")
 
 	interceptor = new(InterceptorWrapper)
@@ -184,7 +180,7 @@ func TestHybridPluginConfiguration(t *testing.T) {
 		plugintest.Configure(pluginsInvalidPlugins),
 	)
 
-	require.EqualError(t, errConfig, "rpc error: code = FailedPrecondition desc = Please provide one of the supported plugins.", "Error configuring plugin: %w", errConfig)
+	require.EqualError(t, errConfig, "rpc error: code = FailedPrecondition desc = please provide one of the supported plugins.", "Error configuring plugin: %w", errConfig)
 	require.Len(t, plugin.pluginList, 0, "Hybrid node attestor should load no plugins on empty config.")
 
 	interceptor = new(InterceptorWrapper)
@@ -196,7 +192,7 @@ func TestHybridPluginConfiguration(t *testing.T) {
 		plugintest.Configure(pluginsStringEmptyData),
 	)
 
-	require.EqualError(t, errConfig, "rpc error: code = FailedPrecondition desc = No plugins supplied", "Error configuring plugin: %w", errConfig)
+	require.EqualError(t, errConfig, "rpc error: code = FailedPrecondition desc = no plugins supplied", "Error configuring plugin: %w", errConfig)
 	require.Len(t, plugin.pluginList, 0, "Hybrid node attestor should load no plugins on empty config.")
 
 	interceptor = new(InterceptorWrapper)
@@ -207,7 +203,7 @@ func TestHybridPluginConfiguration(t *testing.T) {
 		plugintest.CoreConfig(coreConfig),
 		plugintest.Configure(pluginsStringErrorData),
 	)
-	require.EqualError(t, errConfig, "rpc error: code = Internal desc = Error configuring one of the supplied plugins.", "Error configuring plugin: %w", errConfig)
+	require.EqualError(t, errConfig, "rpc error: code = Internal desc = error configuring one of the supplied plugins. The error was rpc error: code = InvalidArgument desc = configuration missing cluster")
 }
 
 func TestHybridPluginAgentInterceptor(t *testing.T) {
@@ -228,19 +224,19 @@ func TestHybridPluginAgentInterceptor(t *testing.T) {
 
 	payloadOne := nodeattestorv1.PayloadOrChallengeResponse{
 		Data: &nodeattestorv1.PayloadOrChallengeResponse_Payload{
-			Payload: []byte(payloadOneData),
+			Payload: []byte(k8sPayloadData),
 		},
 	}
 	interceptor.Send(&payloadOne)
-	require.Equal(t, []byte(payloadOneData), interceptor.payload, "Could not set payload on interceptor")
+	require.Equal(t, []byte(k8sPayloadData), interceptor.payload, "Could not set payload on interceptor")
 
 	payloadTwo := nodeattestorv1.PayloadOrChallengeResponse{
 		Data: &nodeattestorv1.PayloadOrChallengeResponse_Payload{
-			Payload: []byte(payloadTwoData),
+			Payload: []byte(awsPayloadData),
 		},
 	}
 	interceptor.Send(&payloadTwo)
-	require.Equal(t, []byte(payloadTwoData), interceptor.payload, "Could not replace payload on interceptor")
+	require.Equal(t, []byte(awsPayloadData), interceptor.payload, "Could not replace payload on interceptor")
 
 	interceptor.payload = nil
 	interceptorOne := interceptor.SpawnInterceptor()
@@ -253,10 +249,10 @@ func TestHybridPluginAgentInterceptor(t *testing.T) {
 	var messageList common.PluginMessageList = common.PluginMessageList{}
 
 	message1 := interceptorOne.GetMessage()
-	require.Equal(t, []byte(payloadOneData), message1.PluginData, "Could not get message from interceptor")
+	require.Equal(t, []byte(k8sPayloadData), message1.PluginData, "Could not get message from interceptor")
 	require.Equal(t, "test_pluginOne", message1.PluginName, "Could not get plugin name from interceptor")
 	message2 := interceptorTwo.GetMessage()
-	require.Equal(t, []byte(payloadTwoData), message2.PluginData, "Could not get message from interceptor")
+	require.Equal(t, []byte(awsPayloadData), message2.PluginData, "Could not get message from interceptor")
 	require.Equal(t, "test_pluginTwo", message2.PluginName, "Could not get plugin name from interceptor")
 	messageList.Messages = append(messageList.Messages, message1)
 	messageList.Messages = append(messageList.Messages, message2)
@@ -291,7 +287,7 @@ func TestHybridPluginAgentAidAttestation(t *testing.T) {
 	hybridPlugin.SetLogger(hclog.Default().Named("test_logger2"))
 	require.Equal(t, "test_logger2", hybridPlugin.logger.Name(), "Could not set hybrid plugin logger")
 
-	expectedError := status.Error(codes.InvalidArgument, "Plugin initialization error")
+	expectedError := status.Error(codes.FailedPrecondition, "plugin initialization error")
 	hybridPlugin.initStatus = expectedError
 	aidAttestation = hybridPlugin.AidAttestation(stream)
 	require.EqualError(t, aidAttestation, expectedError.Error(), "AidAttestation of hybrid plugin fails")
@@ -307,7 +303,7 @@ func TestHybridPluginAgentAidAttestation(t *testing.T) {
 	hybridPlugin = HybridPluginAgent{pluginList: pluginList, logger: hclog.Default(), interceptor: interceptorFake}
 
 	aidAttestation = hybridPlugin.AidAttestation(stream)
-	require.EqualError(t, aidAttestation, "rpc error: code = Internal desc = An error occurred during AidAttestation of the aws_iid plugin. The error was rpc error: code = InvalidArgument desc = AidAttestation error", "Error calling plugin: %w", aidAttestation)
+	require.EqualError(t, aidAttestation, "rpc error: code = Internal desc = an error occurred during AidAttestation of the aws_iid plugin. The error was rpc error: code = InvalidArgument desc = AidAttestation error", "Error calling plugin: %w", aidAttestation)
 }
 
 // ------------------------------------------------------------------------------------------------------------------------
@@ -389,14 +385,6 @@ func (iw *InterceptorWrapper) Send(challenge *nodeattestorv1.PayloadOrChallengeR
 	return nil
 }
 
-func (iw *InterceptorWrapper) setCustomStream(stream nodeattestorv1.NodeAttestor_AidAttestationServer) {
-
-}
-
-func (iw *InterceptorWrapper) SetContext(ctx context.Context) {
-
-}
-
 func (iw *InterceptorWrapper) Context() context.Context {
 	return nil
 }
@@ -421,10 +409,17 @@ func (iw *InterceptorWrapper) SetPluginName(name string) {
 	iw.name = name
 }
 
-func (iw *InterceptorWrapper) SpawnInterceptor() AgentInterceptorInterface {
+func (iw *InterceptorWrapper) SpawnInterceptor() AgentInterceptor {
 	return &InterceptorWrapper{
 		returnError: iw.returnError,
 		message:     iw.message,
 		name:        iw.name,
 	}
+}
+
+func (iw *InterceptorWrapper) SetContext(ctx context.Context) {
+
+}
+
+func (iw *InterceptorWrapper) setCustomStream(stream nodeattestorv1.NodeAttestor_AidAttestationServer) {
 }

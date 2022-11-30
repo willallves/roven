@@ -1,4 +1,4 @@
-package hybrid_agent
+package hybridagent
 
 import (
 	"context"
@@ -11,17 +11,17 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-type AgentInterceptorInterface interface {
+type AgentInterceptor interface {
 	Recv() (*nodeattestorv1.Challenge, error)
 	Send(challenge *nodeattestorv1.PayloadOrChallengeResponse) error
-	setCustomStream(stream nodeattestorv1.NodeAttestor_AidAttestationServer)
 	SetContext(ctx context.Context)
 	Context() context.Context
 	SetLogger(logger hclog.Logger)
 	SendCombined(common.PluginMessageList) error
 	SetPluginName(name string)
 	GetMessage() common.PluginMessage
-	SpawnInterceptor() AgentInterceptorInterface
+	SpawnInterceptor() AgentInterceptor
+	setCustomStream(stream nodeattestorv1.NodeAttestor_AidAttestationServer)
 }
 
 type HybridPluginAgentInterceptor struct {
@@ -42,10 +42,6 @@ func (m *HybridPluginAgentInterceptor) GetMessage() common.PluginMessage {
 		PluginName: m.pluginName,
 		PluginData: m.payload,
 	}
-}
-
-func (m *HybridPluginAgentInterceptor) setCustomStream(stream nodeattestorv1.NodeAttestor_AidAttestationServer) {
-	m.stream = stream
 }
 
 func (m *HybridPluginAgentInterceptor) Recv() (*nodeattestorv1.Challenge, error) {
@@ -82,7 +78,7 @@ func (m *HybridPluginAgentInterceptor) SendCombined(messageList common.PluginMes
 	return m.stream.Send(payload)
 }
 
-func (m *HybridPluginAgentInterceptor) SpawnInterceptor() AgentInterceptorInterface {
+func (m *HybridPluginAgentInterceptor) SpawnInterceptor() AgentInterceptor {
 	return &HybridPluginAgentInterceptor{
 		ctx:        m.ctx,
 		stream:     m.stream,
@@ -90,4 +86,8 @@ func (m *HybridPluginAgentInterceptor) SpawnInterceptor() AgentInterceptorInterf
 		payload:    m.payload,
 		pluginName: m.pluginName,
 	}
+}
+
+func (m *HybridPluginAgentInterceptor) setCustomStream(stream nodeattestorv1.NodeAttestor_AidAttestationServer) {
+	m.stream = stream
 }

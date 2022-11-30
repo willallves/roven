@@ -1,4 +1,4 @@
-package hybrid_server
+package hybridserver
 
 import (
 	"bytes"
@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"sync"
 
 	hclog "github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/hcl"
@@ -33,21 +34,25 @@ var (
 )
 
 type HybridPluginServer struct {
-	pluginList []common.Types
 	nodeattestorbase.Base
 	agentstorev1.UnimplementedAgentStoreServer
 	nodeattestorv1.UnimplementedNodeAttestorServer
 	configv1.UnsafeConfigServer
 
+	pluginList  []common.Types
 	logger      hclog.Logger
 	store       agentstorev1.AgentStoreServiceClient
 	broker      pluginsdk.ServiceBroker
-	interceptor ServerInterceptorInterface
-	initStatus  error
+	interceptor ServerInterceptor // remove that
+	mu          sync.RWMutex
 }
 
 func New() *HybridPluginServer {
 	return &HybridPluginServer{interceptor: new(HybridPluginServerInterceptor)}
+}
+
+func (p *HybridPluginServer) CheckAttested(ctx context.Context, spiffeID string) (bool, error) {
+	return agentstore.IsAttested(ctx, p.store, spiffeID)
 }
 
 func (p *HybridPluginServer) SetLogger(logger hclog.Logger) {
@@ -61,15 +66,18 @@ func (p *HybridPluginServer) BrokerHostServices(broker pluginsdk.ServiceBroker) 
 
 func (p *HybridPluginServer) setBrokerHostServices() error {
 	if !p.broker.BrokerClient(&p.store) {
-		return errors.New("Agent store service required")
+		return errors.New("agent store service required")
 	}
 
-	for i := 0; i < len(p.pluginList); i++ {
-		elem := reflect.ValueOf(p.pluginList[i].Plugin)
+	for _, plugin := range p.pluginList {
+		elem := reflect.ValueOf(plugin.Plugin)
 		method := elem.MethodByName("BrokerHostServices")
 		if method.IsValid() {
 			err := elem.MethodByName("BrokerHostServices").Call([]reflect.Value{reflect.ValueOf(p.broker)})
-			p.logger.Debug(err[0].String())
+
+			if err[0].Interface() != nil {
+				return status.Errorf(codes.Internal, "%v", err)
+			}
 		}
 	}
 
@@ -82,7 +90,7 @@ func (p *HybridPluginServer) Attest(stream nodeattestorv1.NodeAttestor_AttestSer
 		return err
 	}
 
-	p.interceptor.ResetInterceptor()
+	p.interceptor.ResetInterceptor() // change it to create one interceptor in each call
 	p.interceptor.setCustomStream(stream)
 	p.interceptor.SetContext(stream.Context())
 	p.interceptor.SetLogger(p.logger)
@@ -97,7 +105,7 @@ func (p *HybridPluginServer) Attest(stream nodeattestorv1.NodeAttestor_AttestSer
 	if err := json.Unmarshal(payloadRequest.Payload, &messageList); err != nil {
 		return status.Errorf(codes.InvalidArgument, "unable to unmarshal payload: %v", err)
 	}
-	interceptors := make([]ServerInterceptorInterface, len(messageList.Messages))
+	interceptors := make([]ServerInterceptor, len(messageList.Messages))
 	for index, message := range messageList.Messages {
 		name := message.PluginName
 		processed := false
@@ -107,8 +115,9 @@ func (p *HybridPluginServer) Attest(stream nodeattestorv1.NodeAttestor_AttestSer
 			},
 		}
 
-		newInterceptor := p.interceptor.SpawnInterceptor()
+		newInterceptor := new(HybridPluginServerInterceptor) // mudar para um init melhor
 		newInterceptor.SetReq(newReq)
+		newInterceptor.SetContext(stream.Context())
 		interceptors[index] = newInterceptor
 
 		for _, plugin := range p.pluginList {
@@ -117,8 +126,8 @@ func (p *HybridPluginServer) Attest(stream nodeattestorv1.NodeAttestor_AttestSer
 			}
 
 			elem := reflect.ValueOf(plugin.Plugin)
-			elem.MethodByName("SetLogger").Call([]reflect.Value{reflect.ValueOf(p.logger)})
 			result := elem.MethodByName("Attest").Call([]reflect.Value{reflect.ValueOf(newInterceptor)})
+
 			if result[0].Interface() != nil {
 				callError, _ := status.FromError(result[0].Interface().(error))
 				return status.Errorf(codes.Internal, callError.Message())
@@ -135,12 +144,19 @@ func (p *HybridPluginServer) Attest(stream nodeattestorv1.NodeAttestor_AttestSer
 	return p.SendResponse(interceptors)
 }
 
-func (p *HybridPluginServer) SendResponse(interceptors []ServerInterceptorInterface) error {
+func (p *HybridPluginServer) SendResponse(interceptors []ServerInterceptor) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	selectors := []string{}
 	canReattest := true
 	for _, interceptor := range interceptors {
-		if !interceptor.CanReattest()[0] {
-			attested, err := agentstore.IsAttested(context.Background(), p.store, interceptor.SpiffeID())
+		if len(p.interceptor.SpiffeID()) == 0 {
+			p.interceptor.SetSpiffeID(interceptor.SpiffeID())
+		}
+
+		if !p.checkReattestation(interceptor.CanReattest()) {
+			attested, err := p.CheckAttested(interceptor.Context(), interceptor.SpiffeID())
 			canReattest = false
 			switch {
 			case err != nil:
@@ -150,9 +166,7 @@ func (p *HybridPluginServer) SendResponse(interceptors []ServerInterceptorInterf
 			default:
 			}
 		}
-		if len(p.interceptor.SpiffeID()) == 0 {
-			p.interceptor.SetSpiffeID(interceptor.SpiffeID())
-		}
+
 		selectors = append(selectors, interceptor.CombinedSelectors()...)
 	}
 
@@ -172,21 +186,26 @@ func (p *HybridPluginServer) Configure(ctx context.Context, req *configv1.Config
 
 	pluginNames, pluginsData := p.parseReceivedData(pluginData)
 
-	p.pluginList, p.initStatus = p.initPlugins(pluginNames)
+	var initError error
+	p.pluginList, initError = p.initPlugins(pluginNames)
 
-	if len(p.pluginList) == 0 || p.initStatus != nil {
-		return nil, p.initStatus
+	if len(p.pluginList) == 0 || initError != nil {
+		return nil, initError
 	}
 
-	for i := 0; i < len(p.pluginList); i++ {
-		elem := reflect.ValueOf(p.pluginList[i].Plugin)
-		req.HclConfiguration = pluginsData[p.pluginList[i].PluginName]
+	for _, plugin := range p.pluginList {
+		elem := reflect.ValueOf(plugin.Plugin)
+		req.HclConfiguration = pluginsData[plugin.PluginName]
+
+		if len(req.HclConfiguration) == 0 {
+			return &configv1.ConfigureResponse{}, status.Errorf(codes.Internal, "error getting data from one of the supplied plugins: %s", plugin.PluginName)
+		}
 
 		result := elem.MethodByName("Configure").Call([]reflect.Value{reflect.ValueOf(ctx), reflect.ValueOf(req)})
 		err := result[1]
 
 		if !err.IsNil() {
-			return &configv1.ConfigureResponse{}, status.Errorf(codes.Internal, "Error configuring one of the supplied plugins(%s): %s", p.pluginList[i].PluginName, err.Interface().(error))
+			return &configv1.ConfigureResponse{}, status.Errorf(codes.Internal, "error configuring one of the supplied plugins(%s): %s", plugin.PluginName, err.Interface().(error))
 		}
 	}
 
@@ -201,7 +220,7 @@ func (p *HybridPluginServer) decodeStringAndTransformToAstNode(hclData string) (
 	var genericData common.GenericPluginSuper
 	if err := hcl.Decode(&genericData, hclData); err != nil {
 		errorString := fmt.Sprintf("%v", err)
-		return nil, status.Errorf(codes.Internal, "Could not decode HCL config. The error was %v.", errorString)
+		return nil, status.Errorf(codes.Internal, "could not decode HCL config. The error was %v.", errorString)
 	}
 
 	var data bytes.Buffer
@@ -211,21 +230,20 @@ func (p *HybridPluginServer) decodeStringAndTransformToAstNode(hclData string) (
 
 	if err := hcl.Decode(&astNodeData, data.String()); err != nil {
 		errorString := fmt.Sprintf("%v", err)
-		return nil, status.Errorf(codes.Internal, "Could not decode HCL config. The error was %v.", errorString)
+		return nil, status.Errorf(codes.Internal, "could not decode HCL config. The error was %v.", errorString)
 	}
 
 	return astNodeData, nil
 }
 
 func (p *HybridPluginServer) parseReceivedData(data common.Generics) ([]string, map[string]string) {
-
 	str := map[string]string{}
 	plugins := []string{}
 	for key := range data {
 		var data_ bytes.Buffer
 		printer.DefaultConfig.Fprint(&data_, data[key])
 		result := strings.Replace(data_.String(), "{", "", 1)
-		result = reverse(strings.Replace(reverse(result), "}", reverse(""), 1))
+		result = reverse(strings.Replace(reverse(result), "}", "", 1))
 		str[key] = result
 		plugins = append(plugins, key)
 	}
@@ -241,11 +259,15 @@ func reverse(s string) (result string) {
 }
 
 func (p *HybridPluginServer) initPlugins(pluginList []string) ([]common.Types, error) {
-	attestors := make([]common.Types, 0)
+	if len(pluginList) == 0 {
+		return nil, status.Error(codes.FailedPrecondition, "no plugins supplied")
+	}
 
-	for i := 0; i < len(pluginList); i++ {
+	attestors := make([]common.Types, len(pluginList))
+
+	for index, item := range pluginList {
 		var plugin common.Types
-		switch pluginList[i] {
+		switch item {
 		case "aws_iid":
 			plugin.PluginName = "aws_iid"
 			plugin.Plugin = awsiid.New()
@@ -259,22 +281,28 @@ func (p *HybridPluginServer) initPlugins(pluginList []string) ([]common.Types, e
 			plugin.PluginName = "gcp_iit"
 			plugin.Plugin = gcpiit.New()
 		default:
-			plugin.PluginName = ""
-			plugin.Plugin = nil
+			return nil, status.Error(codes.FailedPrecondition, "please provide one of the supported plugins.")
 		}
 
-		attestors = append(attestors, plugin)
-	}
+		elem := reflect.ValueOf(plugin.Plugin)
+		methodCall := elem.MethodByName("SetLogger")
 
-	for i := 0; i < len(attestors); i++ {
-		if attestors[i].Plugin == nil {
-			return nil, status.Error(codes.FailedPrecondition, "Some of the supplied plugins are not supported or are invalid")
+		if methodCall.Kind() != 0 {
+			methodCall.Call([]reflect.Value{reflect.ValueOf(p.logger)})
 		}
-	}
 
-	if len(attestors) == 0 {
-		return nil, status.Error(codes.FailedPrecondition, "No plugins supplied")
+		attestors[index] = plugin
 	}
 
 	return attestors, nil
+}
+
+func (p *HybridPluginServer) checkReattestation(attestationData []bool) bool {
+	for _, canReattest := range attestationData {
+		if !canReattest {
+			return false
+		}
+	}
+
+	return true
 }

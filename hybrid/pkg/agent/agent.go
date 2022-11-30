@@ -1,4 +1,4 @@
-package hybrid_agent
+package hybridagent
 
 import (
 	"bytes"
@@ -6,8 +6,9 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"sync"
 
-	"github.com/hashicorp/go-hclog"
+	hclog "github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/hcl"
 	"github.com/hashicorp/hcl/hcl/printer"
 
@@ -24,13 +25,15 @@ import (
 )
 
 type HybridPluginAgent struct {
-	pluginList []common.Types
 	agentstorev1.UnimplementedAgentStoreServer
 	nodeattestorv1.UnsafeNodeAttestorServer
 	configv1.UnsafeConfigServer
+
+	pluginList  []common.Types
 	logger      hclog.Logger
-	interceptor AgentInterceptorInterface
+	interceptor AgentInterceptor
 	initStatus  error
+	mu          sync.RWMutex
 }
 
 func New() *HybridPluginAgent {
@@ -43,48 +46,52 @@ func (p *HybridPluginAgent) SetLogger(logger hclog.Logger) {
 }
 func (p *HybridPluginAgent) AidAttestation(stream nodeattestorv1.NodeAttestor_AidAttestationServer) error {
 	if len(p.pluginList) == 0 || p.initStatus != nil {
-		return status.Errorf(codes.InvalidArgument, "Plugin initialization error")
+		return status.Errorf(codes.FailedPrecondition, "plugin initialization error")
 	}
 
 	p.interceptor.setCustomStream(stream)
-	p.interceptor.SetContext(stream.Context())
-	p.interceptor.SetLogger(p.logger)
+	interceptors := make([]AgentInterceptor, 0, len(p.pluginList))
 
-	interceptors := make([]AgentInterceptorInterface, len(p.pluginList))
-
-	for i := 0; i < len(p.pluginList); i++ {
+	for _, plugin := range p.pluginList {
 		newInterceptor := p.interceptor.SpawnInterceptor()
-		newInterceptor.SetPluginName(p.pluginList[i].PluginName)
-		interceptors[i] = newInterceptor
+		newInterceptor.SetPluginName(plugin.PluginName)
+		interceptors = append(interceptors, newInterceptor)
 
-		elem := reflect.ValueOf(p.pluginList[i].Plugin)
+		elem := reflect.ValueOf(plugin.Plugin)
 		result := elem.MethodByName("AidAttestation").Call([]reflect.Value{reflect.ValueOf(newInterceptor)})
-		err := result[0].Interface()
 
-		if err != nil {
+		if err := result[0].Interface(); err != nil {
 			errorString := fmt.Sprintf("%v", err)
-			return status.Errorf(codes.Internal, "An error occurred during AidAttestation of the %v plugin. The error was %v", p.pluginList[i].PluginName, errorString)
+			return status.Errorf(codes.Internal, "an error occurred during AidAttestation of the %v plugin. The error was %v", plugin.PluginName, errorString)
 		}
 	}
 
 	combinedMessage := common.PluginMessageList{}
-	for i := 0; i < len(interceptors); i++ {
-		combinedMessage.Messages = append(combinedMessage.Messages, interceptors[i].GetMessage())
+	for _, interceptor := range interceptors {
+		// fmt.Println(interceptor, len(p.pluginList))
+		combinedMessage.Messages = append(combinedMessage.Messages, interceptor.GetMessage())
 	}
+	// os.Exit(3)
 
 	return p.interceptor.SendCombined(combinedMessage)
 }
 
 func (p *HybridPluginAgent) Configure(ctx context.Context, req *configv1.ConfigureRequest) (*configv1.ConfigureResponse, error) {
+	p.interceptor.SetLogger(p.logger)
 	pluginData, configError := p.decodeStringAndTransformToAstNode(req.HclConfiguration)
 
 	if configError != nil {
-		return &configv1.ConfigureResponse{}, configError
+		return &configv1.ConfigureResponse{}, status.Errorf(codes.Internal, "error configuring plugin. %v", configError)
 	}
 
 	pluginNames, pluginsData := p.parseReceivedData(pluginData)
 
-	p.pluginList, p.initStatus = p.initPlugins(pluginNames)
+	pluginList, initStatus := p.initPlugins(pluginNames)
+
+	p.mu.Lock()
+	defer p.mu.Unlock() // verificar onde estas variaveis estão sendo lidas e usar o lock no geter delas
+	p.pluginList = pluginList
+	p.initStatus = initStatus
 
 	if len(p.pluginList) == 0 || p.initStatus != nil {
 		return nil, p.initStatus
@@ -97,14 +104,14 @@ func (p *HybridPluginAgent) Configure(ctx context.Context, req *configv1.Configu
 		methodCall := elem.MethodByName("Configure")
 
 		if methodCall.Kind() == 0 {
-			return &configv1.ConfigureResponse{}, status.Errorf(codes.Internal, "Error configuring plugin %v.", p.pluginList[i].PluginName)
+			return &configv1.ConfigureResponse{}, status.Errorf(codes.Internal, "error configuring plugin %v.", p.pluginList[i].PluginName)
 		}
 
 		result := methodCall.Call([]reflect.Value{reflect.ValueOf(ctx), reflect.ValueOf(req)})
 		err := result[1]
 
 		if !err.IsNil() {
-			return &configv1.ConfigureResponse{}, status.Errorf(codes.Internal, "Error configuring one of the supplied plugins.")
+			return &configv1.ConfigureResponse{}, status.Errorf(codes.Internal, "error configuring one of the supplied plugins. The error was %v", err)
 		}
 	}
 
@@ -147,12 +154,17 @@ func (p *HybridPluginAgent) parseReceivedData(data common.Generics) (pluginNames
 func (p *HybridPluginAgent) initPlugins(pluginList []string) ([]common.Types, error) {
 	attestors := make([]common.Types, len(pluginList))
 
+	if len(attestors) == 0 {
+		return nil, status.Error(codes.FailedPrecondition, "no plugins supplied")
+	}
+
 	for index, item := range pluginList {
 		var plugin common.Types
 		switch item {
 		case "aws_iid":
 			plugin.PluginName = "aws_iid"
-			plugin.Plugin = awsiid.New()
+			awsiid := awsiid.New()
+			plugin.Plugin = awsiid
 		case "k8s_psat":
 			plugin.PluginName = "k8s_psat"
 			plugin.Plugin = k8spsat.New()
@@ -163,20 +175,17 @@ func (p *HybridPluginAgent) initPlugins(pluginList []string) ([]common.Types, er
 			plugin.PluginName = "gcp_iit"
 			plugin.Plugin = gcpiit.New()
 		default:
-			return nil, status.Error(codes.FailedPrecondition, "Please provide one of the supported plugins.")
+			return nil, status.Error(codes.FailedPrecondition, "please provide one of the supported plugins.")
+		}
+
+		elem := reflect.ValueOf(plugin.Plugin)
+		methodCall := elem.MethodByName("SetLogger")
+
+		if methodCall.Kind() != 0 {
+			methodCall.Call([]reflect.Value{reflect.ValueOf(p.logger)})
 		}
 
 		attestors[index] = plugin
-	}
-
-	for i := 0; i < len(attestors); i++ {
-		if attestors[i].Plugin == nil {
-			return nil, status.Error(codes.FailedPrecondition, "Some of the supplied plugins are not supported or are invalid")
-		}
-	}
-
-	if len(attestors) == 0 {
-		return nil, status.Error(codes.FailedPrecondition, "No plugins supplied")
 	}
 
 	return attestors, nil
