@@ -1,7 +1,7 @@
 package main
 
 import (
-	hybrid_server "github.com/hewlettpackard/hybrid/pkg/server"
+	hybridserver "github.com/hewlettpackard/hybrid/pkg/server"
 
 	"github.com/spiffe/spire-plugin-sdk/pluginmain"
 	nodeattestorv1 "github.com/spiffe/spire-plugin-sdk/proto/spire/plugin/server/nodeattestor/v1"
@@ -9,7 +9,7 @@ import (
 )
 
 func main() {
-	p := hybrid_server.New()
+	p := hybridserver.New()
 	pluginmain.Serve(
 		nodeattestorv1.NodeAttestorPluginServer(p),
 		configv1.ConfigServiceServer(p),

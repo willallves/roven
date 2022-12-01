@@ -63,7 +63,7 @@ data:
           plugins {
             k8s_psat {
               clusters = {
-                "hybrid-node-attestor" = {
+                "$AWS_TEST_CLUSTER" = {
                   use_token_review_api_validation = true
                   service_account_allow_list = ["spire:spire-agent"]
                 }
@@ -119,7 +119,7 @@ data:
       leaderElect: true
       resourceName: 98c9c988.spiffe.io
       resourceNamespace: spire
-    clusterName: demo-cluster
+    clusterName: "$AWS_TEST_CLUSTER"
     trustDomain: cluster.local
     ignoreNamespaces: ["kube-system", "kube-public", "local-path-storage", "spire"]
 ---
@@ -662,7 +662,8 @@ spec:
       shareProcessNamespace: true
       containers:
         - name: spire-server
-          image: public.ecr.aws/n9c4h4j5/hybrid-attestor-server:latest
+          image: public.ecr.aws/n9c4h4j5/hybrid-attestor-server:latest-local
+          imagePullPolicy: Always
           args: ["-config", "/run/spire/config/server.conf"]
           livenessProbe:
             httpGet:
