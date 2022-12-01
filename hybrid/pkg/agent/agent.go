@@ -95,14 +95,14 @@ func (p *HybridPluginAgent) Configure(ctx context.Context, req *configv1.Configu
 		return nil, p.initStatus
 	}
 
-	for i := 0; i < len(p.pluginList); i++ {
-		elem := reflect.ValueOf(p.pluginList[i].Plugin)
-		req.HclConfiguration = pluginsData[p.pluginList[i].PluginName]
+	for _, plugin := range p.pluginList {
+		elem := reflect.ValueOf(plugin.Plugin)
+		req.HclConfiguration = pluginsData[plugin.PluginName]
 
 		methodCall := elem.MethodByName("Configure")
 
 		if methodCall.Kind() == 0 {
-			return &configv1.ConfigureResponse{}, status.Errorf(codes.Internal, "error configuring plugin %v.", p.pluginList[i].PluginName)
+			return &configv1.ConfigureResponse{}, status.Errorf(codes.Internal, "error configuring plugin %v.", plugin.PluginName)
 		}
 
 		result := methodCall.Call([]reflect.Value{reflect.ValueOf(ctx), reflect.ValueOf(req)})

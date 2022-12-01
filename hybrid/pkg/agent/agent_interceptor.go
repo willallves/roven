@@ -24,9 +24,9 @@ type AgentInterceptor interface {
 }
 
 type HybridPluginAgentInterceptor struct {
-	ctx    context.Context
 	stream nodeattestorv1.NodeAttestor_AidAttestationServer
 	nodeattestorv1.NodeAttestor_AidAttestationServer
+	ctx        context.Context
 	logger     hclog.Logger
 	payload    []byte
 	pluginName string

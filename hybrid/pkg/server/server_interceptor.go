@@ -25,9 +25,9 @@ type ServerInterceptor interface {
 }
 
 type HybridPluginServerInterceptor struct {
-	stream nodeattestorv1.NodeAttestor_AttestServer
 	nodeattestorv1.NodeAttestor_AttestServer
 
+	stream            nodeattestorv1.NodeAttestor_AttestServer
 	logger            hclog.Logger
 	ctx               context.Context
 	req               *nodeattestorv1.AttestRequest
