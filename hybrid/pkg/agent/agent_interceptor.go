@@ -14,7 +14,6 @@ import (
 type AgentInterceptor interface {
 	Recv() (*nodeattestorv1.Challenge, error)
 	Send(challenge *nodeattestorv1.PayloadOrChallengeResponse) error
-	SetContext(ctx context.Context)
 	Context() context.Context
 	SetLogger(logger hclog.Logger)
 	SendCombined(common.PluginMessageList) error
@@ -53,10 +52,6 @@ func (m *HybridPluginAgentInterceptor) Send(challenge *nodeattestorv1.PayloadOrC
 	return nil
 }
 
-func (m *HybridPluginAgentInterceptor) SetContext(ctx context.Context) {
-	m.ctx = ctx
-}
-
 func (m *HybridPluginAgentInterceptor) Context() context.Context {
 	return m.ctx
 }
@@ -90,4 +85,5 @@ func (m *HybridPluginAgentInterceptor) SpawnInterceptor() AgentInterceptor {
 
 func (m *HybridPluginAgentInterceptor) setCustomStream(stream nodeattestorv1.NodeAttestor_AidAttestationServer) {
 	m.stream = stream
+	m.ctx = stream.Context()
 }

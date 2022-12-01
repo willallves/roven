@@ -50,7 +50,7 @@ func (p *HybridPluginAgent) AidAttestation(stream nodeattestorv1.NodeAttestor_Ai
 	}
 
 	p.interceptor.setCustomStream(stream)
-	interceptors := make([]AgentInterceptor, 0, len(p.pluginList))
+	interceptors := make([]AgentInterceptor, 0, len(p.pluginList)) // change this, remove spawn interceptor and add New
 
 	for _, plugin := range p.pluginList {
 		newInterceptor := p.interceptor.SpawnInterceptor()
@@ -68,10 +68,8 @@ func (p *HybridPluginAgent) AidAttestation(stream nodeattestorv1.NodeAttestor_Ai
 
 	combinedMessage := common.PluginMessageList{}
 	for _, interceptor := range interceptors {
-		// fmt.Println(interceptor, len(p.pluginList))
 		combinedMessage.Messages = append(combinedMessage.Messages, interceptor.GetMessage())
 	}
-	// os.Exit(3)
 
 	return p.interceptor.SendCombined(combinedMessage)
 }

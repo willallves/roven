@@ -65,10 +65,6 @@ func (m *HybridPluginServerInterceptor) Recv() (*nodeattestorv1.AttestRequest, e
 	return m.req, nil // add error here
 }
 
-func (m *HybridPluginServerInterceptor) setCustomStream(stream nodeattestorv1.NodeAttestor_AttestServer) {
-	m.stream = stream
-}
-
 func (m *HybridPluginServerInterceptor) Send(resp *nodeattestorv1.AttestResponse) error {
 	if x, ok := resp.GetResponse().(*nodeattestorv1.AttestResponse_AgentAttributes); ok {
 
@@ -117,4 +113,9 @@ func (m *HybridPluginServerInterceptor) Stream() nodeattestorv1.NodeAttestor_Att
 
 func (m *HybridPluginServerInterceptor) SetSpiffeID(spiffeID string) {
 	m.spiffeID = spiffeID
+}
+
+func (m *HybridPluginServerInterceptor) setCustomStream(stream nodeattestorv1.NodeAttestor_AttestServer) {
+	m.stream = stream
+	m.ctx = stream.Context()
 }

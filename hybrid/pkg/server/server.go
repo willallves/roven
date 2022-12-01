@@ -170,6 +170,7 @@ func (p *HybridPluginServer) SendResponse(interceptors []ServerInterceptor) erro
 		selectors = append(selectors, interceptor.CombinedSelectors()...)
 	}
 
+	// fmt.Println("yaw")
 	return p.interceptor.Stream().Send(&nodeattestorv1.AttestResponse{
 		Response: &nodeattestorv1.AttestResponse_AgentAttributes{
 			AgentAttributes: &nodeattestorv1.AgentAttributes{
