@@ -2,14 +2,12 @@ module github.com/hewlettpackard/hybrid
 
 go 1.19
 
-// replace github.com/spiffe/spire => github.com/spiffe/spire v1.2.1-0.20221027032717-3cbfb6277d23
-
 require (
 	github.com/hashicorp/go-hclog v1.3.1
 	github.com/hashicorp/hcl v1.0.1-0.20190430135223-99e2f22d1c94
 	github.com/spiffe/go-spiffe/v2 v2.0.1-0.20220414143532-2ed460a8b9d3
 	github.com/spiffe/spire v1.5.1
-	github.com/spiffe/spire-plugin-sdk v1.4.4
+	github.com/spiffe/spire-plugin-sdk v1.5.0
 	github.com/stretchr/testify v1.8.1
 	google.golang.org/grpc v1.50.1
 )

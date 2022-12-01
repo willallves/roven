@@ -1,4 +1,4 @@
-package hybrid_server
+package hybridserver
 
 import (
 	"context"
@@ -7,10 +7,9 @@ import (
 	nodeattestorv1 "github.com/spiffe/spire-plugin-sdk/proto/spire/plugin/server/nodeattestor/v1"
 )
 
-type ServerInterceptorInterface interface {
+type ServerInterceptor interface {
 	Recv() (*nodeattestorv1.AttestRequest, error)
 	Send(resp *nodeattestorv1.AttestResponse) error
-	setCustomStream(stream nodeattestorv1.NodeAttestor_AttestServer)
 	SetContext(ctx context.Context)
 	Context() context.Context
 	SetLogger(logger hclog.Logger)
@@ -20,40 +19,30 @@ type ServerInterceptorInterface interface {
 	SetSpiffeID(spiffeID string)
 	CombinedSelectors() []string
 	Stream() nodeattestorv1.NodeAttestor_AttestServer
-	ResetInterceptor()
-	SpawnInterceptor() ServerInterceptorInterface
+	NewInterceptor() ServerInterceptor
+	setCustomStream(stream nodeattestorv1.NodeAttestor_AttestServer)
 }
 
 type HybridPluginServerInterceptor struct {
-	ctx    context.Context
-	stream nodeattestorv1.NodeAttestor_AttestServer
 	nodeattestorv1.NodeAttestor_AttestServer
+
+	stream            nodeattestorv1.NodeAttestor_AttestServer
 	logger            hclog.Logger
+	ctx               context.Context
 	req               *nodeattestorv1.AttestRequest
-	Response          *nodeattestorv1.AttestResponse
+	response          *nodeattestorv1.AttestResponse
 	combinedSelectors []string
 	spiffeID          string
 	canReattest       []bool
 }
 
-func (m *HybridPluginServerInterceptor) ResetInterceptor() {
-	m.ctx = nil
-	m.stream = nil
-	m.logger = nil
-	m.req = nil
-	m.Response = nil
-	m.combinedSelectors = nil
-	m.spiffeID = ""
-	m.canReattest = nil
-}
-
-func (m *HybridPluginServerInterceptor) SpawnInterceptor() ServerInterceptorInterface {
+func (m *HybridPluginServerInterceptor) NewInterceptor() ServerInterceptor {
 	return &HybridPluginServerInterceptor{
 		ctx:               m.ctx,
 		stream:            m.stream,
 		logger:            m.logger,
 		req:               m.req,
-		Response:          m.Response,
+		response:          m.response,
 		combinedSelectors: m.combinedSelectors,
 		spiffeID:          m.spiffeID,
 		canReattest:       m.canReattest,
@@ -61,11 +50,7 @@ func (m *HybridPluginServerInterceptor) SpawnInterceptor() ServerInterceptorInte
 }
 
 func (m *HybridPluginServerInterceptor) Recv() (*nodeattestorv1.AttestRequest, error) {
-	return m.req, nil // add error here
-}
-
-func (m *HybridPluginServerInterceptor) setCustomStream(stream nodeattestorv1.NodeAttestor_AttestServer) {
-	m.stream = stream
+	return m.req, nil
 }
 
 func (m *HybridPluginServerInterceptor) Send(resp *nodeattestorv1.AttestResponse) error {
@@ -116,4 +101,13 @@ func (m *HybridPluginServerInterceptor) Stream() nodeattestorv1.NodeAttestor_Att
 
 func (m *HybridPluginServerInterceptor) SetSpiffeID(spiffeID string) {
 	m.spiffeID = spiffeID
+}
+
+func (m *HybridPluginServerInterceptor) setCustomStream(stream nodeattestorv1.NodeAttestor_AttestServer) {
+	m.stream = stream
+	m.ctx = stream.Context()
+}
+
+func NewServerInterceptor() ServerInterceptor {
+	return &HybridPluginServerInterceptor{}
 }
