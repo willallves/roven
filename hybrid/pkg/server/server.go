@@ -39,16 +39,15 @@ type HybridPluginServer struct {
 	nodeattestorv1.UnimplementedNodeAttestorServer
 	configv1.UnsafeConfigServer
 
-	pluginList  []common.Types
-	logger      hclog.Logger
-	store       agentstorev1.AgentStoreServiceClient
-	broker      pluginsdk.ServiceBroker
-	interceptor ServerInterceptor // remove that
-	mu          sync.RWMutex
+	pluginList []common.Types
+	logger     hclog.Logger
+	store      agentstorev1.AgentStoreServiceClient
+	broker     pluginsdk.ServiceBroker
+	mu         sync.RWMutex
 }
 
 func New() *HybridPluginServer {
-	return &HybridPluginServer{interceptor: new(HybridPluginServerInterceptor)}
+	return &HybridPluginServer{}
 }
 
 func (p *HybridPluginServer) CheckAttested(ctx context.Context, spiffeID string) (bool, error) {
@@ -90,12 +89,6 @@ func (p *HybridPluginServer) Attest(stream nodeattestorv1.NodeAttestor_AttestSer
 		return err
 	}
 
-	p.interceptor.ResetInterceptor() // change it to create one interceptor in each call
-	p.interceptor.setCustomStream(stream)
-	p.interceptor.SetContext(stream.Context())
-	p.interceptor.SetLogger(p.logger)
-	p.interceptor.SetReq(req)
-
 	payloadRequest, ok := req.Request.(*nodeattestorv1.AttestRequest_Payload)
 	if !ok {
 		return status.Errorf(codes.InvalidArgument, "request payload is required")
@@ -105,25 +98,27 @@ func (p *HybridPluginServer) Attest(stream nodeattestorv1.NodeAttestor_AttestSer
 	if err := json.Unmarshal(payloadRequest.Payload, &messageList); err != nil {
 		return status.Errorf(codes.InvalidArgument, "unable to unmarshal payload: %v", err)
 	}
+
+	payloadMap := map[string][]byte{}
+	for _, message := range messageList.Messages {
+		payloadMap[message.PluginName] = message.PluginData
+	}
+
 	interceptors := make([]ServerInterceptor, len(messageList.Messages))
-	for index, message := range messageList.Messages {
-		name := message.PluginName
-		processed := false
-		newReq := &nodeattestorv1.AttestRequest{
-			Request: &nodeattestorv1.AttestRequest_Payload{
-				Payload: message.PluginData,
-			},
-		}
 
-		newInterceptor := new(HybridPluginServerInterceptor) // mudar para um init melhor
-		newInterceptor.SetReq(newReq)
-		newInterceptor.SetContext(stream.Context())
-		interceptors[index] = newInterceptor
+	for index, plugin := range p.pluginList {
+		if val, ok := payloadMap[plugin.PluginName]; ok {
 
-		for _, plugin := range p.pluginList {
-			if plugin.PluginName != name {
-				continue
+			newReq := &nodeattestorv1.AttestRequest{
+				Request: &nodeattestorv1.AttestRequest_Payload{
+					Payload: val,
+				},
 			}
+
+			newInterceptor := NewServerInterceptor()
+			newInterceptor.SetReq(newReq)
+			newInterceptor.setCustomStream(stream)
+			interceptors[index] = newInterceptor
 
 			elem := reflect.ValueOf(plugin.Plugin)
 			result := elem.MethodByName("Attest").Call([]reflect.Value{reflect.ValueOf(newInterceptor)})
@@ -132,29 +127,23 @@ func (p *HybridPluginServer) Attest(stream nodeattestorv1.NodeAttestor_AttestSer
 				callError, _ := status.FromError(result[0].Interface().(error))
 				return status.Errorf(codes.Internal, callError.Message())
 			}
-			processed = true
-			break
-		}
-
-		if !processed {
-			return status.Errorf(codes.InvalidArgument, "plugin %s not found", name)
+		} else {
+			return status.Errorf(codes.InvalidArgument, "plugin %v not found", plugin.PluginName)
 		}
 	}
 
-	return p.SendResponse(interceptors)
+	return p.SendResponse(interceptors, stream)
 }
 
-func (p *HybridPluginServer) SendResponse(interceptors []ServerInterceptor) error {
+func (p *HybridPluginServer) SendResponse(interceptors []ServerInterceptor, stream nodeattestorv1.NodeAttestor_AttestServer) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	selectors := []string{}
 	canReattest := true
-	for _, interceptor := range interceptors {
-		if len(p.interceptor.SpiffeID()) == 0 {
-			p.interceptor.SetSpiffeID(interceptor.SpiffeID())
-		}
+	spiffeId := interceptors[0].SpiffeID()
 
+	for _, interceptor := range interceptors {
 		if !p.checkReattestation(interceptor.CanReattest()) {
 			attested, err := p.CheckAttested(interceptor.Context(), interceptor.SpiffeID())
 			canReattest = false
@@ -170,12 +159,11 @@ func (p *HybridPluginServer) SendResponse(interceptors []ServerInterceptor) erro
 		selectors = append(selectors, interceptor.CombinedSelectors()...)
 	}
 
-	// fmt.Println("yaw")
-	return p.interceptor.Stream().Send(&nodeattestorv1.AttestResponse{
+	return stream.Send(&nodeattestorv1.AttestResponse{
 		Response: &nodeattestorv1.AttestResponse_AgentAttributes{
 			AgentAttributes: &nodeattestorv1.AgentAttributes{
 				CanReattest:    canReattest,
-				SpiffeId:       p.interceptor.SpiffeID(),
+				SpiffeId:       spiffeId,
 				SelectorValues: selectors,
 			},
 		},

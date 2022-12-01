@@ -102,8 +102,7 @@ func TestNew(t *testing.T) {
 }
 
 func TestMethodsThatParseHclConfig(t *testing.T) {
-	interceptor := new(InterceptorWrapper)
-	plugin := HybridPluginAgent{interceptor: interceptor}
+	plugin := HybridPluginAgent{}
 
 	pluginAstNode, err := plugin.decodeStringAndTransformToAstNode(pluginsString)
 
@@ -126,8 +125,8 @@ func TestMethodsThatParseHclConfig(t *testing.T) {
 }
 
 func TestSupportedPluginsInitialization(t *testing.T) {
-	interceptor := new(InterceptorWrapper)
-	plugin := HybridPluginAgent{interceptor: interceptor, logger: hclog.Default().Named("test_logger")}
+	// interceptor := new(InterceptorWrapper)
+	plugin := HybridPluginAgent{logger: hclog.Default().Named("test_logger")}
 
 	plugins, err := plugin.initPlugins([]string{"aws_iid", "k8s_psat", "azure_msi", "gcp_iit"})
 
@@ -150,8 +149,7 @@ func TestHybridPluginConfiguration(t *testing.T) {
 		TrustDomain: spiffeid.RequireTrustDomainFromString("example.org"),
 	}
 
-	interceptor := new(InterceptorWrapper)
-	plugin := HybridPluginAgent{interceptor: interceptor}
+	plugin := HybridPluginAgent{}
 
 	t.Run("No Error Config", func(t *testing.T) {
 		plugintest.Load(t, builtin(&plugin), nil,
@@ -248,11 +246,11 @@ func TestHybridPluginAgentInterceptor(t *testing.T) {
 	require.Equal(t, []byte(awsPayloadData), interceptor.payload, "Could not replace payload on interceptor")
 
 	interceptor.payload = nil
-	interceptorOne := interceptor.SpawnInterceptor()
+	interceptorOne := NewAgentInterceptor()
 	interceptorOne.SetPluginName("test_pluginOne")
 	interceptorOne.Send(&payloadOne)
 
-	interceptorTwo := interceptor.SpawnInterceptor()
+	interceptorTwo := NewAgentInterceptor()
 	interceptorTwo.SetPluginName("test_pluginTwo")
 	interceptorTwo.Send(&payloadTwo)
 	var messageList common.PluginMessageList
@@ -265,7 +263,8 @@ func TestHybridPluginAgentInterceptor(t *testing.T) {
 	require.Equal(t, "test_pluginTwo", message2.PluginName, "Could not get plugin name from interceptor")
 	messageList.Messages = append(messageList.Messages, message1)
 	messageList.Messages = append(messageList.Messages, message2)
-	interceptor.SendCombined(messageList)
+	agent := New()
+	agent.SendCombined(messageList, stream)
 
 	jsonMessage, err := json.Marshal(messageList)
 	require.NoError(t, err)
@@ -282,16 +281,16 @@ func TestHybridPluginAgentAidAttestation(t *testing.T) {
 		{PluginName: "k8s_psat", Plugin: pluginOne},
 		{PluginName: "aws_iid", Plugin: pluginTwo},
 	}
-	interceptorFake := new(InterceptorWrapper)
-	hybridPlugin := HybridPluginAgent{pluginList: pluginList, logger: hclog.Default(), interceptor: interceptorFake}
+
+	hybridPlugin := HybridPluginAgent{pluginList: pluginList, logger: hclog.Default()}
 
 	aidAttestation := hybridPlugin.AidAttestation(stream)
 	require.NoError(t, aidAttestation)
 
-	interceptorFake.setReturnError(true)
+	pluginOne.setReturnError(true)
 	aidAttestation = hybridPlugin.AidAttestation(stream)
 	require.Error(t, aidAttestation, "AidAttestation of hybrid plugin fails")
-	require.EqualErrorf(t, aidAttestation, status.Errorf(codes.Internal, "Test Error").Error(), "Could not set hybrid plugin logger")
+	require.EqualErrorf(t, aidAttestation, status.Errorf(codes.Internal, "an error occurred during AidAttestation of the k8s_psat plugin. The error was rpc error: code = InvalidArgument desc = AidAttestation error").Error(), "Could not set hybrid plugin logger")
 
 	hybridPlugin.SetLogger(hclog.Default().Named("test_logger2"))
 	require.Equal(t, "test_logger2", hybridPlugin.logger.Name(), "Could not set hybrid plugin logger")
@@ -317,8 +316,8 @@ func TestHybridPluginAgentAidAttestation(t *testing.T) {
 		{PluginName: "k8s_psat", Plugin: pluginOne},
 		{PluginName: "aws_iid", Plugin: pluginTwo},
 	}
-	interceptorFake = new(InterceptorWrapper)
-	hybridPlugin = HybridPluginAgent{pluginList: pluginList, logger: hclog.Default(), interceptor: interceptorFake}
+
+	hybridPlugin = HybridPluginAgent{pluginList: pluginList, logger: hclog.Default()}
 
 	aidAttestation = hybridPlugin.AidAttestation(stream)
 	require.EqualError(t, aidAttestation, "rpc error: code = Internal desc = an error occurred during AidAttestation of the aws_iid plugin. The error was rpc error: code = InvalidArgument desc = AidAttestation error", "Error calling plugin: %w", aidAttestation)
@@ -411,18 +410,14 @@ func (iw *InterceptorWrapper) SetPluginName(name string) {
 	iw.name = name
 }
 
-func (iw *InterceptorWrapper) SpawnInterceptor() AgentInterceptor {
-	return &InterceptorWrapper{
-		returnError: iw.returnError,
-		message:     iw.message,
-		name:        iw.name,
-	}
-}
-
 func (iw *InterceptorWrapper) setCustomStream(stream nodeattestorv1.NodeAttestor_AidAttestationServer) {
 	// implementation to comply with the interface
 }
 
 func (iw *InterceptorWrapper) setReturnError(state bool) {
 	iw.returnError = state
+}
+
+func SpawnInterceptorWrapper() AgentInterceptor {
+	return &InterceptorWrapper{}
 }

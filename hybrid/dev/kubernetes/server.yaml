@@ -663,6 +663,7 @@ spec:
       containers:
         - name: spire-server
           image: public.ecr.aws/n9c4h4j5/hybrid-attestor-server:latest-local
+          imagePullPolicy: Always
           args: ["-config", "/run/spire/config/server.conf"]
           livenessProbe:
             httpGet:

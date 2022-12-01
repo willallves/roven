@@ -3,6 +3,7 @@ package hybridagent
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
@@ -29,15 +30,14 @@ type HybridPluginAgent struct {
 	nodeattestorv1.UnsafeNodeAttestorServer
 	configv1.UnsafeConfigServer
 
-	pluginList  []common.Types
-	logger      hclog.Logger
-	interceptor AgentInterceptor
-	initStatus  error
-	mu          sync.RWMutex
+	pluginList []common.Types
+	logger     hclog.Logger
+	initStatus error
+	mu         sync.RWMutex
 }
 
 func New() *HybridPluginAgent {
-	return &HybridPluginAgent{interceptor: new(HybridPluginAgentInterceptor)}
+	return &HybridPluginAgent{}
 }
 
 func (p *HybridPluginAgent) SetLogger(logger hclog.Logger) {
@@ -49,12 +49,13 @@ func (p *HybridPluginAgent) AidAttestation(stream nodeattestorv1.NodeAttestor_Ai
 		return status.Errorf(codes.FailedPrecondition, "plugin initialization error")
 	}
 
-	p.interceptor.setCustomStream(stream)
-	interceptors := make([]AgentInterceptor, 0, len(p.pluginList)) // change this, remove spawn interceptor and add New
+	interceptors := make([]AgentInterceptor, 0, len(p.pluginList))
 
 	for _, plugin := range p.pluginList {
-		newInterceptor := p.interceptor.SpawnInterceptor()
+		newInterceptor := NewAgentInterceptor()
 		newInterceptor.SetPluginName(plugin.PluginName)
+		newInterceptor.setCustomStream(stream)
+		newInterceptor.SetLogger(p.logger)
 		interceptors = append(interceptors, newInterceptor)
 
 		elem := reflect.ValueOf(plugin.Plugin)
@@ -71,11 +72,25 @@ func (p *HybridPluginAgent) AidAttestation(stream nodeattestorv1.NodeAttestor_Ai
 		combinedMessage.Messages = append(combinedMessage.Messages, interceptor.GetMessage())
 	}
 
-	return p.interceptor.SendCombined(combinedMessage)
+	return p.SendCombined(combinedMessage, stream)
+}
+
+func (m *HybridPluginAgent) SendCombined(messageList common.PluginMessageList, stream nodeattestorv1.NodeAttestor_AidAttestationServer) error {
+	jsonString, err := json.Marshal(messageList)
+	if err != nil {
+		return status.Errorf(codes.Internal, "unable to marshal message list: %v", err)
+	}
+	payload := &nodeattestorv1.PayloadOrChallengeResponse{
+		Data: &nodeattestorv1.PayloadOrChallengeResponse_Payload{
+			Payload: jsonString,
+		},
+	}
+	return stream.Send(payload)
 }
 
 func (p *HybridPluginAgent) Configure(ctx context.Context, req *configv1.ConfigureRequest) (*configv1.ConfigureResponse, error) {
-	p.interceptor.SetLogger(p.logger)
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	pluginData, configError := p.decodeStringAndTransformToAstNode(req.HclConfiguration)
 
 	if configError != nil {
@@ -85,9 +100,6 @@ func (p *HybridPluginAgent) Configure(ctx context.Context, req *configv1.Configu
 	pluginNames, pluginsData := p.parseReceivedData(pluginData)
 
 	pluginList, initStatus := p.initPlugins(pluginNames)
-
-	p.mu.Lock()
-	defer p.mu.Unlock() // verificar onde estas variaveis estão sendo lidas e usar o lock no geter delas
 	p.pluginList = pluginList
 	p.initStatus = initStatus
 

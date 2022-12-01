@@ -2,13 +2,10 @@ package hybridagent
 
 import (
 	"context"
-	"encoding/json"
 
 	hclog "github.com/hashicorp/go-hclog"
 	"github.com/hewlettpackard/hybrid/pkg/common"
 	nodeattestorv1 "github.com/spiffe/spire-plugin-sdk/proto/spire/plugin/agent/nodeattestor/v1"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 type AgentInterceptor interface {
@@ -16,10 +13,8 @@ type AgentInterceptor interface {
 	Send(challenge *nodeattestorv1.PayloadOrChallengeResponse) error
 	Context() context.Context
 	SetLogger(logger hclog.Logger)
-	SendCombined(common.PluginMessageList) error
 	SetPluginName(name string)
 	GetMessage() common.PluginMessage
-	SpawnInterceptor() AgentInterceptor
 	setCustomStream(stream nodeattestorv1.NodeAttestor_AidAttestationServer)
 }
 
@@ -60,30 +55,11 @@ func (m *HybridPluginAgentInterceptor) SetLogger(logger hclog.Logger) {
 	m.logger = logger
 }
 
-func (m *HybridPluginAgentInterceptor) SendCombined(messageList common.PluginMessageList) error {
-	jsonString, err := json.Marshal(messageList)
-	if err != nil {
-		return status.Errorf(codes.Internal, "unable to marshal message list: %v", err)
-	}
-	payload := &nodeattestorv1.PayloadOrChallengeResponse{
-		Data: &nodeattestorv1.PayloadOrChallengeResponse_Payload{
-			Payload: jsonString,
-		},
-	}
-	return m.stream.Send(payload)
-}
-
-func (m *HybridPluginAgentInterceptor) SpawnInterceptor() AgentInterceptor {
-	return &HybridPluginAgentInterceptor{
-		ctx:        m.ctx,
-		stream:     m.stream,
-		logger:     m.logger,
-		payload:    m.payload,
-		pluginName: m.pluginName,
-	}
-}
-
 func (m *HybridPluginAgentInterceptor) setCustomStream(stream nodeattestorv1.NodeAttestor_AidAttestationServer) {
 	m.stream = stream
 	m.ctx = stream.Context()
+}
+
+func NewAgentInterceptor() AgentInterceptor {
+	return &HybridPluginAgentInterceptor{}
 }

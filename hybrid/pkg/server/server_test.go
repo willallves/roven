@@ -3,26 +3,23 @@ package hybridserver
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"testing"
 
 	hclog "github.com/hashicorp/go-hclog"
+	"github.com/hewlettpackard/hybrid/pkg/common"
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
 	agentstorev1 "github.com/spiffe/spire-plugin-sdk/proto/spire/hostservice/server/agentstore/v1"
 	nodeattestorv1 "github.com/spiffe/spire-plugin-sdk/proto/spire/plugin/server/nodeattestor/v1"
 	configv1 "github.com/spiffe/spire-plugin-sdk/proto/spire/service/common/config/v1"
 	"github.com/spiffe/spire/pkg/common/catalog"
-	// "github.com/spiffe/spire/pkg/server/hostservice/agentstore"
 	"github.com/spiffe/spire/pkg/server/plugin/nodeattestor/awsiid"
 	"github.com/spiffe/spire/pkg/server/plugin/nodeattestor/azuremsi"
 	"github.com/spiffe/spire/pkg/server/plugin/nodeattestor/gcpiit"
 	"github.com/spiffe/spire/pkg/server/plugin/nodeattestor/k8spsat"
-
-	"github.com/hewlettpackard/hybrid/pkg/common"
 	"github.com/spiffe/spire/test/fakes/fakeagentstore"
 	"github.com/spiffe/spire/test/plugintest"
-	require "github.com/stretchr/testify/require"
-	grpc "google.golang.org/grpc"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -93,7 +90,7 @@ var awsPayloadData = `
 	}`
 
 func TestMethodsThatParseHclConfig(t *testing.T) {
-	plugin := HybridPluginServer{}
+	plugin := New()
 
 	pluginAstNode, err := plugin.decodeStringAndTransformToAstNode(pluginsString)
 
@@ -117,8 +114,7 @@ func TestMethodsThatParseHclConfig(t *testing.T) {
 }
 
 func TestSupportedPluginsInitialization(t *testing.T) {
-	interceptor := new(InterceptorWrapper)
-	plugin := HybridPluginServer{interceptor: interceptor, logger: hclog.Default().Named("test_logger")}
+	plugin := HybridPluginServer{logger: hclog.Default().Named("test_logger")}
 
 	plugins, err := plugin.initPlugins([]string{"aws_iid", "k8s_psat", "azure_msi", "gcp_iit"})
 
@@ -135,15 +131,14 @@ func TestSupportedPluginsInitialization(t *testing.T) {
 }
 
 func TestHybridPluginConfiguration(t *testing.T) {
-	interceptor := new(InterceptorWrapper)
-	plugin := HybridPluginServer{interceptor: interceptor}
+	plugin := New()
 
 	coreConfig := catalog.CoreConfig{
 		TrustDomain: spiffeid.RequireTrustDomainFromString("example.org"),
 	}
 	var errConfig error
 
-	plugintest.Load(t, builtin(&plugin), nil,
+	plugintest.Load(t, builtin(plugin), nil,
 		plugintest.CaptureConfigureError(&errConfig),
 		plugintest.HostServices(agentstorev1.AgentStoreServiceServer(fakeagentstore.New())),
 		plugintest.CoreConfig(coreConfig),
@@ -152,9 +147,8 @@ func TestHybridPluginConfiguration(t *testing.T) {
 	require.NoError(t, errConfig, "Error configuring plugin: %w", errConfig)
 	require.Len(t, plugin.pluginList, 2, "Plugins used by Hybrid node attestor failed to start.")
 
-	interceptor = new(InterceptorWrapper)
-	plugin = HybridPluginServer{interceptor: interceptor}
-	plugintest.Load(t, builtin(&plugin), nil,
+	plugin = New()
+	plugintest.Load(t, builtin(plugin), nil,
 		plugintest.CaptureConfigureError(&errConfig),
 		plugintest.HostServices(agentstorev1.AgentStoreServiceServer(fakeagentstore.New())),
 		plugintest.CoreConfig(coreConfig),
@@ -201,7 +195,7 @@ func TestHybridPluginServerInterceptor(t *testing.T) {
 	require.NoError(t, errConfig, "Error receiving request: %w", errConfig)
 	require.Equal(t, []byte("testchallenge"), gotReq.GetChallengeResponse(), "Could not set interceptor request")
 
-	var newInterceptor ServerInterceptor = interceptor.SpawnInterceptor()
+	var newInterceptor ServerInterceptor = interceptor.NewInterceptor()
 	require.IsType(t, &HybridPluginServerInterceptor{}, newInterceptor, "Spawned interceptor is not of type HybridPluginServerInterceptor")
 	require.Equal(t, interceptor.Context(), newInterceptor.Context(), "Spawned interceptor context is not equal to original interceptor context")
 	require.Equal(t, interceptor.logger, newInterceptor.(*HybridPluginServerInterceptor).logger, "Spawned interceptor logger is not equal to original interceptor logger")
@@ -246,11 +240,7 @@ func TestHybridPluginServerInterceptor(t *testing.T) {
 }
 
 func TestHybridPluginServerFuncsAndAttest(t *testing.T) {
-
-	interceptorFake := new(InterceptorWrapper)
-	interceptorFake.returnError = nil
-
-	hybridPlugin := HybridPluginServer{logger: hclog.Default().Named("old_log"), interceptor: interceptorFake}
+	hybridPlugin := HybridPluginServer{logger: hclog.Default().Named("old_log")}
 
 	hybridPlugin.SetLogger(hclog.Default().Named("test_logger"))
 	require.Equal(t, "test_logger", hybridPlugin.logger.Name(), "Could not set logger for hybrid plugin")
@@ -278,8 +268,7 @@ func TestHybridPluginServerFuncsAndAttest(t *testing.T) {
 		{PluginName: "aws_iid", Plugin: pluginAws},
 	}
 
-	interceptorFake.canReattest = []bool{true, false}
-	hybridPlugin = HybridPluginServer{logger: hclog.Default(), interceptor: interceptorFake}
+	hybridPlugin = HybridPluginServer{logger: hclog.Default()}
 
 	plugintest.Load(t, builtin(&hybridPlugin), nil,
 		plugintest.CaptureConfigureError(&errConfig),
@@ -335,9 +324,8 @@ func TestHybridPluginErrors(t *testing.T) {
 		{PluginName: "k8s_psat", Plugin: pluginOne},
 		{PluginName: "aws_iid", Plugin: pluginTwo},
 	}
-	interceptorFake := new(InterceptorWrapper)
-	interceptorFake.returnError = nil
-	hybridPlugin := HybridPluginServer{pluginList: pluginList, logger: hclog.Default(), interceptor: interceptorFake}
+
+	hybridPlugin := HybridPluginServer{pluginList: pluginList, logger: hclog.Default()}
 
 	combinedPayloads := []byte("a")
 	stream := StreamMock{CombinedPayloads: &combinedPayloads}
@@ -396,7 +384,7 @@ func TestHybridPluginErrors(t *testing.T) {
 		},
 	}
 	err = hybridPlugin.Attest(stream)
-	require.EqualError(t, err, "rpc error: code = InvalidArgument desc = plugin k8s_psaat not found")
+	require.EqualError(t, err, "rpc error: code = InvalidArgument desc = plugin k8s_psat not found")
 
 	challengeStream := ChallengeStreamMock{}
 	challengeStream.returnError = nil
@@ -415,15 +403,15 @@ func TestHybridPluginErrors(t *testing.T) {
 }
 
 func TestSendResponse(t *testing.T) {
-	interceptor := new(InterceptorWrapper)
-	plugin := HybridPluginServer{interceptor: interceptor}
+	interceptor := new(HybridPluginServerInterceptor)
+	plugin := New()
 
 	coreConfig := catalog.CoreConfig{
 		TrustDomain: spiffeid.RequireTrustDomainFromString("example.org"),
 	}
 	var errConfig error
 	fakeStore := fakeagentstore.New()
-	plugintest.Load(t, builtin(&plugin), nil,
+	plugintest.Load(t, builtin(plugin), nil,
 		plugintest.CaptureConfigureError(&errConfig),
 		plugintest.HostServices(agentstorev1.AgentStoreServiceServer(fakeStore)),
 		plugintest.CoreConfig(coreConfig),
@@ -440,42 +428,55 @@ func TestSendResponse(t *testing.T) {
 	}
 
 	plugin.pluginList = pluginList
-	interceptor.canReattest = []bool{}
 	combinedPayloads := []byte("a")
 	stream := StreamMock{CombinedPayloads: &combinedPayloads}
 	stream.returnError = nil
+
+	interceptorList := []ServerInterceptor{}
+	interceptorList = append(interceptorList, interceptor.NewInterceptor())
+	interceptorList = append(interceptorList, interceptor.NewInterceptor())
+	interceptorList[0].(*HybridPluginServerInterceptor).canReattest = []bool{true}
 	stream.response = &nodeattestorv1.AttestResponse{
 		Response: &nodeattestorv1.AttestResponse_AgentAttributes{
 			AgentAttributes: &nodeattestorv1.AgentAttributes{
-				SelectorValues: []string{"test", "test2"},
+				SelectorValues: []string{"psat_selector_one", "psat_selector_two"},
 				SpiffeId:       "spiffe://example.org/spire/agent/k8s_psat/test",
+				CanReattest:    true,
 			},
 		},
 	}
-	interceptor.setCustomStream(&stream)
-	interceptor.spiffeid = ""
-	interceptorList := []ServerInterceptor{}
-	interceptorList = append(interceptorList, interceptor.SpawnInterceptor())
-	interceptorList = append(interceptorList, interceptor.SpawnInterceptor())
-	interceptorList[0].(*InterceptorWrapper).canReattest = []bool{true}
-	interceptorList[0].(*InterceptorWrapper).spiffeid = "spiffe://example.org/spire/agent/k8s_psat/test"
 	interceptorList[0].setCustomStream(stream)
-	interceptorList[1].(*InterceptorWrapper).canReattest = []bool{false}
-	interceptorList[1].(*InterceptorWrapper).spiffeid = "spiffe://example.org/spire/agent/aws_iid/test"
+	interceptorList[0].Send(stream.response)
+	interceptorList[1].(*HybridPluginServerInterceptor).canReattest = []bool{false}
+	stream.response = &nodeattestorv1.AttestResponse{
+		Response: &nodeattestorv1.AttestResponse_AgentAttributes{
+			AgentAttributes: &nodeattestorv1.AgentAttributes{
+				SelectorValues: []string{"aws_selector_one", "aws_selector_two"},
+				SpiffeId:       "spiffe://example.org/spire/agent/aws_iid/test",
+				CanReattest:    false,
+			},
+		},
+	}
 	interceptorList[1].setCustomStream(stream)
+	interceptorList[1].Send(stream.response)
 
-	err := plugin.SendResponse(interceptorList)
+	err := plugin.SendResponse(interceptorList, stream)
 	require.NoError(t, err, "SendResponse failed: %v", err)
-	require.Equal(t, "spiffe://example.org/spire/agent/k8s_psat/test", interceptor.spiffeid, "Main interceptor spiffeid was not set")
+	require.Equal(
+		t,
+		"spiffe://example.org/spire/agent/k8s_psat/test",
+		stream.response.GetResponse().(*nodeattestorv1.AttestResponse_AgentAttributes).AgentAttributes.GetSpiffeId(),
+		"Main interceptor spiffeid was not set",
+	)
 
 	fakeStore.SetAgentInfo(&agentstorev1.AgentInfo{
 		AgentId: "spiffe://example.org/spire/agent/aws_iid/test",
 	})
-	err = plugin.SendResponse(interceptorList)
+	err = plugin.SendResponse(interceptorList, stream)
 	require.EqualError(t, err, "rpc error: code = PermissionDenied desc = attestation data has already been used to attest an agent")
 
 	fakeStore.SetAgentErr("spiffe://example.org/spire/agent/aws_iid/test", status.Error(codes.InvalidArgument, "Error retrieving agentInfo"))
-	err = plugin.SendResponse(interceptorList)
+	err = plugin.SendResponse(interceptorList, stream)
 	require.EqualError(t, err, "rpc error: code = InvalidArgument desc = unable to get agent info: Error retrieving agentInfo", "SendResponse failed unexpectedly: %v", err)
 }
 
@@ -483,31 +484,6 @@ func TestNew(t *testing.T) {
 	hybridPlugin := New()
 	require.NotNil(t, hybridPlugin, "New should return a non-nil value")
 	require.IsType(t, &HybridPluginServer{}, hybridPlugin, "New should return a HybridPluginServer")
-}
-
-func TestResetInterceptor(t *testing.T) {
-	req := nodeattestorv1.AttestRequest{Request: &nodeattestorv1.AttestRequest_Payload{Payload: nil}}
-	resp := nodeattestorv1.AttestResponse{Response: &nodeattestorv1.AttestResponse_AgentAttributes{
-		AgentAttributes: &nodeattestorv1.AgentAttributes{
-			SelectorValues: []string{"test", "test2"},
-			SpiffeId:       "spiffe://example.org/spire/agent/k8s_psat/test",
-			CanReattest:    false,
-		},
-	}}
-	interceptor := HybridPluginServerInterceptor{ctx: context.Background(), stream: StreamMock{}, logger: hclog.Default(), req: &req, response: &resp,
-		combinedSelectors: []string{"test"}, spiffeID: "spiffe", canReattest: []bool{true}}
-
-	if interceptor.ctx == nil && interceptor.stream == nil && interceptor.logger == nil && interceptor.req == nil && interceptor.response == nil &&
-		interceptor.combinedSelectors == nil && interceptor.spiffeID == "" && interceptor.canReattest == nil {
-		errors.New("Interceptor is empty")
-	}
-
-	interceptor.ResetInterceptor()
-
-	if interceptor.ctx != nil && interceptor.stream != nil && interceptor.logger != nil && interceptor.req != nil && interceptor.response != nil &&
-		interceptor.combinedSelectors != nil && interceptor.spiffeID != "" && interceptor.canReattest != nil {
-		errors.New("Cannot reset interceptor")
-	}
 }
 
 // ------------------------------------------------------------------------------------------------------------------------
@@ -705,12 +681,7 @@ func (iw *InterceptorWrapper) SetSpiffeID(spiffeID string) {
 	iw.spiffeid = spiffeID
 }
 
-func (iw *InterceptorWrapper) setCustomStream(stream nodeattestorv1.NodeAttestor_AttestServer) {
-	iw.stream = stream
-	iw.ctx = stream.Context()
-}
-
-func (iw *InterceptorWrapper) SpawnInterceptor() ServerInterceptor {
+func (iw *InterceptorWrapper) NewInterceptor() ServerInterceptor {
 	return &InterceptorWrapper{
 		returnError: iw.returnError,
 		stream:      iw.stream,
@@ -718,4 +689,9 @@ func (iw *InterceptorWrapper) SpawnInterceptor() ServerInterceptor {
 		spiffeid:    iw.spiffeid,
 		ctx:         iw.ctx,
 	}
+}
+
+func (iw *InterceptorWrapper) setCustomStream(stream nodeattestorv1.NodeAttestor_AttestServer) {
+	iw.stream = stream
+	iw.ctx = stream.Context()
 }

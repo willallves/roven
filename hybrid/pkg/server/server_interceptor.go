@@ -10,7 +10,6 @@ import (
 type ServerInterceptor interface {
 	Recv() (*nodeattestorv1.AttestRequest, error)
 	Send(resp *nodeattestorv1.AttestResponse) error
-	setCustomStream(stream nodeattestorv1.NodeAttestor_AttestServer)
 	SetContext(ctx context.Context)
 	Context() context.Context
 	SetLogger(logger hclog.Logger)
@@ -20,8 +19,8 @@ type ServerInterceptor interface {
 	SetSpiffeID(spiffeID string)
 	CombinedSelectors() []string
 	Stream() nodeattestorv1.NodeAttestor_AttestServer
-	ResetInterceptor()
-	SpawnInterceptor() ServerInterceptor
+	NewInterceptor() ServerInterceptor
+	setCustomStream(stream nodeattestorv1.NodeAttestor_AttestServer)
 }
 
 type HybridPluginServerInterceptor struct {
@@ -37,18 +36,7 @@ type HybridPluginServerInterceptor struct {
 	canReattest       []bool
 }
 
-func (m *HybridPluginServerInterceptor) ResetInterceptor() {
-	m.ctx = nil
-	m.stream = nil
-	m.logger = nil
-	m.req = nil
-	m.response = nil
-	m.combinedSelectors = nil
-	m.spiffeID = ""
-	m.canReattest = nil
-}
-
-func (m *HybridPluginServerInterceptor) SpawnInterceptor() ServerInterceptor {
+func (m *HybridPluginServerInterceptor) NewInterceptor() ServerInterceptor {
 	return &HybridPluginServerInterceptor{
 		ctx:               m.ctx,
 		stream:            m.stream,
@@ -62,7 +50,7 @@ func (m *HybridPluginServerInterceptor) SpawnInterceptor() ServerInterceptor {
 }
 
 func (m *HybridPluginServerInterceptor) Recv() (*nodeattestorv1.AttestRequest, error) {
-	return m.req, nil // add error here
+	return m.req, nil
 }
 
 func (m *HybridPluginServerInterceptor) Send(resp *nodeattestorv1.AttestResponse) error {
@@ -118,4 +106,8 @@ func (m *HybridPluginServerInterceptor) SetSpiffeID(spiffeID string) {
 func (m *HybridPluginServerInterceptor) setCustomStream(stream nodeattestorv1.NodeAttestor_AttestServer) {
 	m.stream = stream
 	m.ctx = stream.Context()
+}
+
+func NewServerInterceptor() ServerInterceptor {
+	return &HybridPluginServerInterceptor{}
 }
